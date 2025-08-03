@@ -11,6 +11,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str;
 use std::time::Duration;
 use std::io;
+use std::sync::Arc;
 
 use env_logger::Env;
 use log::{debug, error, info, warn};
@@ -18,14 +19,19 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::OnceCell;
 use tokio::time::timeout;
+#[cfg(feature = "doh")]
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
+#[cfg(feature = "doh")]
 use hickory_resolver::TokioAsyncResolver;
 
 mod types;
 mod abstractions;
 // mod doh; // DoH functionality is now in protocol_handlers
+#[cfg(feature = "upnp")]
 mod upnp;
+#[cfg(feature = "auto-discovery")]
 mod bonjour;
+#[cfg(feature = "auto-discovery")]
 mod pac;
 // Temporarily disabled problematic modules for testing
 // mod extended_protocols;
@@ -35,12 +41,14 @@ mod pac;
 // mod violent_fuzzer;
 // mod stubs;
 mod universal_listener;
+#[cfg(feature = "auto-discovery")]
 mod auto_discovery;
 mod patricia_detector;
 mod unified_handler;
 mod protocol_registry;
 mod protocol_handlers;
 mod unified_protocol_manager;
+#[cfg(feature = "posix-sockets")]
 mod posix_sockets;
 mod simple_routing;
 
@@ -52,8 +60,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const UPNP_LEASE_DURATION: u32 = 3600; // 1 hour
 
 // --- DNS Resolution ---
+#[cfg(feature = "doh")]
 static DOH_RESOLVER: OnceCell<TokioAsyncResolver> = OnceCell::const_new();
 
+#[cfg(feature = "doh")]
 async fn get_doh_resolver() -> &'static TokioAsyncResolver {
     DOH_RESOLVER.get_or_init(|| async {
         let config = ResolverConfig::cloudflare();
@@ -62,32 +72,37 @@ async fn get_doh_resolver() -> &'static TokioAsyncResolver {
     }).await
 }
 
-/// Resolves a hostname to an IP address using DoH resolver.
+/// Resolves a hostname to an IP address using available resolver.
 async fn resolve_host(host: &str) -> io::Result<IpAddr> {
     // Try parsing as IP first
     if let Ok(ip) = host.parse::<IpAddr>() {
         return Ok(ip);
     }
 
-    // Use DoH resolver with fallback to system DNS
-    match get_doh_resolver().await.lookup_ip(host).await {
-        Ok(response) => {
-            response.iter().next().ok_or_else(|| {
-                error!("No IP address found for {}", host);
-                io::Error::new(io::ErrorKind::NotFound, "No IP address found")
-            })
-        }
-        Err(e) => {
-            warn!("DoH resolution failed for {}: {}, falling back to system DNS", host, e);
-            // Fallback to system DNS
-            let addresses: Vec<SocketAddr> = tokio::net::lookup_host(format!("{}:80", host))
-                .await? 
-                .collect();
-            
-            addresses.first()
-                .map(|addr| addr.ip())
-                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No IP address found"))
-        }
+    #[cfg(feature = "doh")]
+    {
+        let resolver = get_doh_resolver().await;
+        let response = resolver.lookup_ip(host).await.map_err(|e| {
+            error!("DoH resolution failed for {}: {}", host, e);
+            io::Error::new(io::ErrorKind::NotFound, "Host not found")
+        })?;
+
+        response.iter().next().ok_or_else(|| {
+            error!("No IP address found for {}", host);
+            io::Error::new(io::ErrorKind::NotFound, "No IP address found")
+        })
+    }
+    
+    #[cfg(not(feature = "doh"))]
+    {
+        // Fallback to system DNS
+        let addresses: Vec<SocketAddr> = tokio::net::lookup_host(format!("{}:80", host))
+            .await?
+            .collect();
+        
+        addresses.first()
+            .map(|addr| addr.ip())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No IP address found"))
     }
 }
 
@@ -112,7 +127,7 @@ async fn connect_to_target(target: &str) -> io::Result<TcpStream> {
 }
 
 /// Relays data between two streams efficiently.
-async fn relay_streams<S1, S2>(mut client: S1, mut remote: S2) -> io::Result<()> 
+async fn relay_streams<S1, S2>(mut client: S1, mut remote: S2) -> io::Result<()>
 where
     S1: AsyncRead + AsyncWrite + Unpin,
     S2: AsyncRead + AsyncWrite + Unpin,
@@ -136,7 +151,7 @@ where
 }
 
 // --- HTTP Handler ---
-async fn handle_http<S>(mut stream: S) -> io::Result<()> 
+async fn handle_http<S>(mut stream: S) -> io::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -179,7 +194,7 @@ where
 }
 
 // --- SOCKS5 Handler ---
-async fn handle_socks5<S>(mut stream: S) -> io::Result<()> 
+async fn handle_socks5<S>(mut stream: S) -> io::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -192,7 +207,7 @@ where
     stream.read_exact(&mut methods).await?;
 
     if !methods.contains(&0) {
-        stream.write_all(&[5, 0xFF]).await?;
+        stream.write_all(&[5, 0xFF]).await?; // No acceptable methods
         return Err(io::Error::new(io::ErrorKind::InvalidData, "No supported authentication methods"));
     }
     stream.write_all(&[5, 0]).await?;
@@ -201,7 +216,7 @@ where
     let mut buf = [0u8; 4];
     stream.read_exact(&mut buf).await?;
     if buf[0] != 5 || buf[1] != 1 { // VER, CONNECT
-        stream.write_all(&[5, 7, 0, 1, 0, 0, 0, 0, 0, 0]).await?;
+        stream.write_all(&[5, 7, 0, 1, 0, 0, 0, 0, 0, 0]).await?; // Command not supported
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Unsupported SOCKS command"));
     }
 
@@ -235,7 +250,7 @@ where
     Ok(())
 }
 
-async fn read_socks_address<S>(stream: &mut S, atyp: u8) -> io::Result<String> 
+async fn read_socks_address<S>(stream: &mut S, atyp: u8) -> io::Result<String>
 where
     S: AsyncRead + Unpin,
 {
@@ -267,13 +282,14 @@ where
                 buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15],
             ]);
             let port = u16::from_be_bytes([buf[16], buf[17]]);
-            Ok(format!("[{}]::{}", ip, port))
+            Ok(format!("[{}]:{}", ip, port))
         }
         _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported address type")),
     }
 }
 
 /// Gets the IPv4 address for a given network interface name.
+#[cfg(feature = "auto-discovery")]
 fn get_interface_ip(iface_name: &str) -> Option<IpAddr> {
     pnet::datalink::interfaces().into_iter()
         .find(|iface| iface.name == iface_name)
@@ -281,6 +297,7 @@ fn get_interface_ip(iface_name: &str) -> Option<IpAddr> {
 }
 
 /// Sets up UPNP port forwarding.
+#[cfg(feature = "upnp")]
 async fn setup_upnp(local_ip: Ipv4Addr) {
     info!("Attempting to configure UPNP...");
     let gateway = match tokio::task::spawn_blocking(move || igd_next::search_gateway(Default::default())).await {
@@ -311,24 +328,109 @@ async fn setup_upnp(local_ip: Ipv4Addr) {
     }
 }
 
+#[cfg(not(feature = "upnp"))]
+async fn setup_upnp(_local_ip: Ipv4Addr) {
+    debug!("UPnP support disabled - compile with 'upnp' feature to enable");
+}
 
+/// Simple universal connection handler with protocol detection
+async fn handle_universal_connection(mut stream: TcpStream) -> io::Result<()> {
+    // Peek at the first few bytes to detect protocol
+    let mut buffer = [0u8; 64];
+    let n = stream.peek(&mut buffer).await?;
+    
+    if n == 0 {
+        return Ok(());
+    }
+    
+    let data = &buffer[..n];
+    
+    // Simple protocol detection chain
+    if data.len() >= 2 && data[0] == 0x05 {
+        // SOCKS5 detected
+        debug!("Universal port: SOCKS5 detected");
+        handle_socks5(stream).await
+    } else if let Ok(text) = std::str::from_utf8(data) {
+        // Text-based protocols
+        if text.starts_with("GET ") || text.starts_with("POST ") || 
+           text.starts_with("PUT ") || text.starts_with("DELETE ") ||
+           text.starts_with("HEAD ") || text.starts_with("OPTIONS ") ||
+           text.starts_with("CONNECT ") || text.starts_with("PATCH ") {
+            
+            debug!("Universal port: HTTP detected");
+            
+            // Check for special HTTP-based protocols
+            if text.contains("/proxy.pac") {
+                debug!("Universal port: PAC request detected");
+                #[cfg(feature = "auto-discovery")]
+                return pac::handle_pac_request(universal_listener::PrefixedStream::new(stream, data.to_vec())).await;
+                #[cfg(not(feature = "auto-discovery"))]
+                return handle_http(stream).await;
+            } else if text.contains("/wpad.dat") {
+                debug!("Universal port: WPAD request detected");
+                #[cfg(feature = "auto-discovery")]
+                return pac::handle_wpad_request(universal_listener::PrefixedStream::new(stream, data.to_vec())).await;
+                #[cfg(not(feature = "auto-discovery"))]
+                return handle_http(stream).await;
+            } else if text.contains(".local") {
+                debug!("Universal port: Bonjour/mDNS request detected");
+                #[cfg(feature = "auto-discovery")]
+                return bonjour::handle_bonjour(universal_listener::PrefixedStream::new(stream, data.to_vec())).await;
+                #[cfg(not(feature = "auto-discovery"))]
+                return handle_http(stream).await;
+            } else if text.contains("M-SEARCH") || text.contains("NOTIFY") {
+                debug!("Universal port: UPnP request detected");
+                #[cfg(feature = "upnp")]
+                return upnp::handle_upnp_request(universal_listener::PrefixedStream::new(stream, data.to_vec())).await;
+                #[cfg(not(feature = "upnp"))]
+                return handle_http(stream).await;
+            } else {
+                // Regular HTTP request
+                handle_http(stream).await
+            }
+        } else {
+            // Unknown text-based protocol, try HTTP
+            debug!("Universal port: Unknown text protocol, attempting HTTP");
+            handle_http(stream).await
+        }
+    } else if data.len() >= 3 && data[0] == 0x16 && data[1] == 0x03 {
+        // TLS handshake detected
+        debug!("Universal port: TLS detected - connection will be closed");
+        // For now, just close TLS connections as we can't proxy them without termination
+        Ok(())
+    } else {
+        // Unknown binary protocol
+        debug!("Universal port: Unknown binary protocol");
+        Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown protocol"))
+    }
+}
 
 #[tokio::main]
 async fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
-    let bind_ip_str = if let Ok(iface) = std::env::var("INGRESS_INTERFACE") {
-        if let Some(ip) = get_interface_ip(&iface) {
-            ip.to_string()
-        } else {
-            "0.0.0.0".to_string()
+    let bind_ip_str = {
+        #[cfg(feature = "auto-discovery")]
+        {
+            if let Ok(iface) = std::env::var("INGRESS_INTERFACE") {
+                if let Some(ip) = get_interface_ip(&iface) {
+                    ip.to_string()
+                } else {
+                    "0.0.0.0".to_string()
+                }
+            } else {
+                std::env::var("BIND_IP").unwrap_or_else(|_| "0.0.0.0".to_string())
+            }
         }
-    } else {
-        std::env::var("BIND_IP").unwrap_or_else(|_| "0.0.0.0".to_string())
+        #[cfg(not(feature = "auto-discovery"))]
+        {
+            std::env::var("BIND_IP").unwrap_or_else(|_| "0.0.0.0".to_string())
+        }
     };
     let bind_ip: IpAddr = bind_ip_str.parse().expect("Invalid BIND_IP address");
 
     // Initialize auto-discovery services
+    #[cfg(feature = "auto-discovery")]
     if let IpAddr::V4(ipv4) = bind_ip {
         let hostname = hostname::get()
             .map(|h| h.to_string_lossy().to_string())
@@ -384,7 +486,7 @@ async fn main() {
     let router = simple_routing::SimpleRouter::new();
     let (universal_listener, active_config) = router.bind_with_fallback().await.expect("Failed to bind universal listener");
     
-    info!("Universal proxy listening on {} (interface: {:?}) with protocols: {:?}", 
+    info!("Universal proxy listening on {} (interface: {}) with protocols: {:?}", 
           active_config.socket_addr(), 
           active_config.interface,
           simple_routing::get_supported_protocols(&active_config));
@@ -406,52 +508,57 @@ async fn main() {
     }
 }
 
-/// Handle universal port connections with protocol detection (POSIX optimized with fallback)
+/// Handle universal port connections with POSIX-optimized protocol detection
 async fn handle_universal_connection(stream: TcpStream) -> io::Result<()> {
-    // Try POSIX peek first for efficiency, fallback to async detection
-    match universal_listener::detect_protocol_posix(&stream) {
-        Ok(protocol) => {
-            match protocol {
-                universal_listener::Protocol::Http => {
-                    debug!("Routing to HTTP handler via POSIX detection");
-                    handle_http(stream).await
-                },
-                universal_listener::Protocol::Socks5 => {
-                    debug!("Routing to SOCKS5 handler via POSIX detection");
-                    handle_socks5(stream).await
-                },
-                universal_listener::Protocol::Pac => {
-                    debug!("Routing to PAC handler via POSIX detection");
-                    pac::handle_pac_request(stream).await
-                },
-                universal_listener::Protocol::WebSocket => {
-                    debug!("Routing to WebSocket handler via POSIX detection");
-                    handle_http(stream).await // WebSocket upgrade handled by HTTP
-                },
-                _ => {
-                    debug!("Unknown protocol via POSIX detection, defaulting to HTTP");
-                    handle_http(stream).await
-                }
+    #[cfg(feature = "posix-sockets")]
+    {
+        // Use POSIX peek for efficient protocol detection
+        match universal_listener::detect_protocol_posix(&stream)? {
+            universal_listener::Protocol::Http => {
+                debug!("Routing to HTTP handler via POSIX detection");
+                handle_http(stream).await
+            },
+            universal_listener::Protocol::Socks5 => {
+                debug!("Routing to SOCKS5 handler via POSIX detection");
+                handle_socks5(stream).await
+            },
+            universal_listener::Protocol::Pac => {
+                debug!("Routing to PAC handler via POSIX detection");
+                #[cfg(feature = "auto-discovery")]
+                handle_pac_request(stream).await?;
+                #[cfg(not(feature = "auto-discovery"))]
+                handle_http(stream).await?;
+                Ok(())
+            },
+            universal_listener::Protocol::WebSocket => {
+                debug!("Routing to WebSocket handler via POSIX detection");
+                handle_http(stream).await // WebSocket upgrade handled by HTTP
+            },
+            _ => {
+                debug!("Unknown protocol via POSIX detection, defaulting to HTTP");
+                handle_http(stream).await
             }
         }
-        Err(_) => {
-            // Fallback to standard async detection (consumes bytes)
-            let mut stream = stream;
-            match universal_listener::detect_protocol(&mut stream).await? {
-                (universal_listener::Protocol::Http, consumed_data) => {
-                    debug!("Routing to HTTP handler via async detection");
-                    let prefixed_stream = universal_listener::PrefixedStream::new(stream, consumed_data);
-                    handle_http(prefixed_stream).await
-                },
-                (universal_listener::Protocol::Socks5, consumed_data) => {
-                    debug!("Routing to SOCKS5 handler via async detection");
-                    let prefixed_stream = universal_listener::PrefixedStream::new(stream, consumed_data);
-                    handle_socks5(prefixed_stream).await
-                },
-                _ => {
-                    debug!("Unknown protocol via async detection, defaulting to HTTP");
-                    handle_http(stream).await
-                }
+    }
+    
+    #[cfg(not(feature = "posix-sockets"))]
+    {
+        // Fallback to standard async detection (consumes bytes)
+        let mut stream = stream;
+        match universal_listener::detect_protocol(&mut stream).await? {
+            (universal_listener::Protocol::Http, consumed_data) => {
+                debug!("Routing to HTTP handler via async detection");
+                let prefixed_stream = universal_listener::PrefixedStream::new(stream, consumed_data);
+                handle_http_prefixed(prefixed_stream).await
+            },
+            (universal_listener::Protocol::Socks5, consumed_data) => {
+                debug!("Routing to SOCKS5 handler via async detection");
+                let prefixed_stream = universal_listener::PrefixedStream::new(stream, consumed_data);
+                handle_socks5_prefixed(prefixed_stream).await
+            },
+            _ => {
+                debug!("Unknown protocol via async detection, defaulting to HTTP");
+                handle_http(stream).await
             }
         }
     }

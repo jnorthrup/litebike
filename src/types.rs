@@ -102,20 +102,6 @@ pub enum HttpMethod {
     Patch = 0x09,
 }
 
-#[repr(u16)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StandardPort {
-    Http = 80,
-    Https = 443,
-    Dns = 53,
-    Socks5 = 1080,
-    HttpProxy = 8080,
-    HttpsProxy = 8443,
-    SquidProxy = 3128,
-    Upnp = 1900,
-    Mdns = 5353,
-    PacServer = 8888,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShadowsocksMethod {
@@ -269,29 +255,6 @@ impl Display for ProtocolType {
     }
 }
 
-impl From<u16> for StandardPort {
-    fn from(port: u16) -> Self {
-        match port {
-            53 => StandardPort::Dns,
-            80 => StandardPort::Http,
-            443 => StandardPort::Https,
-            1080 => StandardPort::Socks5,
-            1900 => StandardPort::Upnp,
-            3128 => StandardPort::SquidProxy,
-            5353 => StandardPort::Mdns,
-            8080 => StandardPort::HttpProxy,
-            8443 => StandardPort::HttpsProxy,
-            8888 => StandardPort::PacServer,
-            _ => StandardPort::Http,
-        }
-    }
-}
-
-impl From<StandardPort> for u16 {
-    fn from(port: StandardPort) -> Self {
-        port as u16
-    }
-}
 
 impl TargetAddress {
     pub fn new(host: &str, port: u16) -> Self {
@@ -400,4 +363,182 @@ pub fn extract_bits(value: u8, start: u8, length: u8) -> u8 {
 pub fn set_bits(value: u8, start: u8, length: u8, bits: u8) -> u8 {
     let mask = ((1u8 << length) - 1) << start;
     (value & !mask) | ((bits << start) & mask)
+}
+
+// Standard port definitions for auto-discovery
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StandardPort {
+    pub port: u16,
+    pub protocol: &'static str,
+    pub description: &'static str,
+}
+
+impl StandardPort {
+    pub const HTTP: StandardPort = StandardPort { port: 80, protocol: "HTTP", description: "Web traffic" };
+    pub const HTTPS: StandardPort = StandardPort { port: 443, protocol: "HTTPS", description: "Secure web traffic" };
+    pub const SOCKS5: StandardPort = StandardPort { port: 1080, protocol: "SOCKS5", description: "SOCKS proxy" };
+    pub const PAC: StandardPort = StandardPort { port: 8888, protocol: "PAC", description: "Proxy auto-config" };
+}
+
+/// Protocol flags for runtime protocol management
+/// Replaces the old feature gate system with bit flags
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProtocolFlags(pub u64);
+
+impl ProtocolFlags {
+    // Core protocols - always enabled
+    pub const HTTP: ProtocolFlags = ProtocolFlags(1 << 0);
+    pub const HTTPS: ProtocolFlags = ProtocolFlags(1 << 1);
+    pub const SOCKS5: ProtocolFlags = ProtocolFlags(1 << 2);
+    pub const CONNECT: ProtocolFlags = ProtocolFlags(1 << 3);
+    
+    // Extended protocols - configurable
+    pub const DOH: ProtocolFlags = ProtocolFlags(1 << 4);
+    pub const UPNP: ProtocolFlags = ProtocolFlags(1 << 5);
+    pub const BONJOUR: ProtocolFlags = ProtocolFlags(1 << 6);
+    pub const PAC: ProtocolFlags = ProtocolFlags(1 << 7);
+    pub const WPAD: ProtocolFlags = ProtocolFlags(1 << 8);
+    pub const TLS: ProtocolFlags = ProtocolFlags(1 << 9);
+    pub const WEBSOCKET: ProtocolFlags = ProtocolFlags(1 << 10);
+    
+    // Advanced protocols
+    pub const SHADOWSOCKS: ProtocolFlags = ProtocolFlags(1 << 11);
+    pub const SSH: ProtocolFlags = ProtocolFlags(1 << 12);
+    pub const FTP: ProtocolFlags = ProtocolFlags(1 << 13);
+    pub const SMTP: ProtocolFlags = ProtocolFlags(1 << 14);
+    pub const IMAP: ProtocolFlags = ProtocolFlags(1 << 15);
+    pub const DNS: ProtocolFlags = ProtocolFlags(1 << 16);
+    pub const QUIC: ProtocolFlags = ProtocolFlags(1 << 17);
+    
+    // Network services
+    pub const MDNS: ProtocolFlags = ProtocolFlags(1 << 18);
+    pub const DHCP: ProtocolFlags = ProtocolFlags(1 << 19);
+    pub const SNMP: ProtocolFlags = ProtocolFlags(1 << 20);
+    pub const NTP: ProtocolFlags = ProtocolFlags(1 << 21);
+    
+    // Security protocols
+    pub const TOR: ProtocolFlags = ProtocolFlags(1 << 22);
+    pub const I2P: ProtocolFlags = ProtocolFlags(1 << 23);
+    
+    // Operating modes
+    pub const POSIX_SOCKETS: ProtocolFlags = ProtocolFlags(1 << 60);
+    pub const ADVANCED_NETWORKING: ProtocolFlags = ProtocolFlags(1 << 61);
+    pub const AUTO_DISCOVERY: ProtocolFlags = ProtocolFlags(1 << 62);
+    pub const UNIVERSAL_PORT: ProtocolFlags = ProtocolFlags(1 << 63);
+    
+    // Predefined configurations
+    pub const BASIC: ProtocolFlags = ProtocolFlags(
+        Self::HTTP.0 | Self::HTTPS.0 | Self::SOCKS5.0 | Self::CONNECT.0
+    );
+    
+    pub const FULL: ProtocolFlags = ProtocolFlags(
+        Self::BASIC.0 | Self::DOH.0 | Self::UPNP.0 | Self::BONJOUR.0 | 
+        Self::PAC.0 | Self::WPAD.0 | Self::TLS.0 | Self::WEBSOCKET.0 |
+        Self::AUTO_DISCOVERY.0 | Self::POSIX_SOCKETS.0 | Self::UNIVERSAL_PORT.0
+    );
+    
+    pub const NONE: ProtocolFlags = ProtocolFlags(0);
+    
+    pub fn has_protocol(self, flag: ProtocolFlags) -> bool {
+        (self.0 & flag.0) != 0
+    }
+    
+    pub fn enable_protocol(&mut self, flag: ProtocolFlags) {
+        self.0 |= flag.0;
+    }
+    
+    pub fn disable_protocol(&mut self, flag: ProtocolFlags) {
+        self.0 &= !flag.0;
+    }
+    
+    pub fn toggle_protocol(&mut self, flag: ProtocolFlags) {
+        self.0 ^= flag.0;
+    }
+    
+    pub fn count_enabled_protocols(self) -> u32 {
+        self.0.count_ones()
+    }
+    
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+    
+    pub fn enabled_protocols(self) -> Vec<&'static str> {
+        let mut protocols = Vec::new();
+        
+        if self.has_protocol(Self::HTTP) { protocols.push("HTTP"); }
+        if self.has_protocol(Self::HTTPS) { protocols.push("HTTPS"); }
+        if self.has_protocol(Self::SOCKS5) { protocols.push("SOCKS5"); }
+        if self.has_protocol(Self::CONNECT) { protocols.push("CONNECT"); }
+        if self.has_protocol(Self::DOH) { protocols.push("DoH"); }
+        if self.has_protocol(Self::UPNP) { protocols.push("UPnP"); }
+        if self.has_protocol(Self::BONJOUR) { protocols.push("Bonjour"); }
+        if self.has_protocol(Self::PAC) { protocols.push("PAC"); }
+        if self.has_protocol(Self::WPAD) { protocols.push("WPAD"); }
+        if self.has_protocol(Self::TLS) { protocols.push("TLS"); }
+        if self.has_protocol(Self::WEBSOCKET) { protocols.push("WebSocket"); }
+        if self.has_protocol(Self::SHADOWSOCKS) { protocols.push("Shadowsocks"); }
+        if self.has_protocol(Self::SSH) { protocols.push("SSH"); }
+        if self.has_protocol(Self::FTP) { protocols.push("FTP"); }
+        if self.has_protocol(Self::SMTP) { protocols.push("SMTP"); }
+        if self.has_protocol(Self::IMAP) { protocols.push("IMAP"); }
+        if self.has_protocol(Self::DNS) { protocols.push("DNS"); }
+        if self.has_protocol(Self::QUIC) { protocols.push("QUIC"); }
+        if self.has_protocol(Self::MDNS) { protocols.push("mDNS"); }
+        if self.has_protocol(Self::DHCP) { protocols.push("DHCP"); }
+        if self.has_protocol(Self::SNMP) { protocols.push("SNMP"); }
+        if self.has_protocol(Self::NTP) { protocols.push("NTP"); }
+        if self.has_protocol(Self::TOR) { protocols.push("Tor"); }
+        if self.has_protocol(Self::I2P) { protocols.push("I2P"); }
+        
+        // Operating modes
+        if self.has_protocol(Self::POSIX_SOCKETS) { protocols.push("POSIX-Sockets"); }
+        if self.has_protocol(Self::ADVANCED_NETWORKING) { protocols.push("Advanced-Networking"); }
+        if self.has_protocol(Self::AUTO_DISCOVERY) { protocols.push("Auto-Discovery"); }
+        if self.has_protocol(Self::UNIVERSAL_PORT) { protocols.push("Universal-Port"); }
+        
+        protocols
+    }
+}
+
+impl Default for ProtocolFlags {
+    fn default() -> Self {
+        Self::FULL
+    }
+}
+
+impl From<ProtocolType> for ProtocolFlags {
+    fn from(protocol: ProtocolType) -> Self {
+        match protocol {
+            ProtocolType::Http => Self::HTTP,
+            ProtocolType::Https => Self::HTTPS,
+            ProtocolType::Socks5 => Self::SOCKS5,
+            ProtocolType::Connect => Self::CONNECT,
+            ProtocolType::Doh => Self::DOH,
+            ProtocolType::Upnp => Self::UPNP,
+            ProtocolType::Bonjour => Self::BONJOUR,
+            ProtocolType::Pac => Self::PAC,
+            ProtocolType::Tls => Self::TLS,
+            ProtocolType::Websocket => Self::WEBSOCKET,
+            ProtocolType::Shadowsocks => Self::SHADOWSOCKS,
+            ProtocolType::Ssh => Self::SSH,
+            ProtocolType::Ftp => Self::FTP,
+            ProtocolType::Smtp => Self::SMTP,
+            ProtocolType::Imap => Self::IMAP,
+            ProtocolType::Dns => Self::DNS,
+            ProtocolType::Quic => Self::QUIC,
+            _ => Self::NONE,
+        }
+    }
+}
+
+impl Display for ProtocolFlags {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let protocols = self.enabled_protocols();
+        if protocols.is_empty() {
+            write!(f, "NONE")
+        } else {
+            write!(f, "{}", protocols.join(" | "))
+        }
+    }
 }

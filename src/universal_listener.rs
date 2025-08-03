@@ -3,6 +3,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::net::TcpStream;
 use log::{debug, info};
 
+
+use crate::posix_sockets::{posix_peek, PosixTcpStream};
+
 /// Protocol detection result
 #[derive(Debug)]
 pub enum Protocol {
@@ -17,7 +20,7 @@ pub enum Protocol {
     Unknown,
 }
 
-/// Detects the protocol based on the first few bytes
+/// Detects the protocol based on the first few bytes using POSIX peek when available
 pub async fn detect_protocol<S>(stream: &mut S) -> io::Result<(Protocol, Vec<u8>)>
 where
     S: AsyncRead + Unpin,
@@ -121,6 +124,55 @@ where
     debug!("Unknown protocol detected");
     Ok((Protocol::Unknown, buffer))
 }
+
+/// Specialized protocol detection for TcpStream using POSIX peek when available
+
+pub fn detect_protocol_posix(stream: &TcpStream) -> io::Result<Protocol> {
+    let mut buffer = [0u8; 512];
+    let n = posix_peek(stream, &mut buffer)?;
+    
+    if n == 0 {
+        return Ok(Protocol::Unknown);
+    }
+    
+    // SOCKS5 starts with version byte 0x05
+    if n >= 2 && buffer[0] == 0x05 {
+        debug!("POSIX: Detected SOCKS5 protocol");
+        return Ok(Protocol::Socks5);
+    }
+    
+    // Check for text-based protocols
+    if let Ok(text) = std::str::from_utf8(&buffer[..std::cmp::min(n, 256)]) {
+        // HTTP methods
+        if text.starts_with("GET ") || 
+           text.starts_with("POST ") || 
+           text.starts_with("PUT ") || 
+           text.starts_with("DELETE ") || 
+           text.starts_with("HEAD ") || 
+           text.starts_with("OPTIONS ") || 
+           text.starts_with("CONNECT ") || 
+           text.starts_with("PATCH ") {
+            debug!("POSIX: Detected HTTP protocol");
+            return Ok(Protocol::Http);
+        }
+        
+        // WebSocket upgrade
+        if text.contains("Upgrade: websocket") {
+            debug!("POSIX: Detected WebSocket protocol");
+            return Ok(Protocol::WebSocket);
+        }
+        
+        // PAC file request
+        if text.contains("/proxy.pac") || text.contains("/wpad.dat") {
+            debug!("POSIX: Detected PAC/WPAD request");
+            return Ok(Protocol::Pac);
+        }
+    }
+    
+    debug!("POSIX: Unknown protocol");
+    Ok(Protocol::Unknown)
+}
+
 
 /// Wrapper stream that prefixes read operations with buffered data
 pub struct PrefixedStream<S> {

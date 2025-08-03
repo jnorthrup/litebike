@@ -6,8 +6,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use log::{debug, info};
 
-use crate::patricia_detector::PatriciaDetector;
-use crate::patricia_detector::Protocol;
+use crate::protocol_detector::ProtocolDetector;
+use crate::protocol_detector::Protocol;
 
 /// Buffer pool for reducing allocations
 const BUFFER_POOL_SIZE: usize = 8;
@@ -44,7 +44,7 @@ fn return_buffer(mut buffer: Vec<u8>) {
 }
 
 /// Optimized unified handler with zero-copy where possible
-pub async fn handle_unified_optimized<S>(mut stream: S) -> io::Result<()>
+pub async fn handle_unified_optimized<S>(mut stream: S) -> io::Result<()> 
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -55,25 +55,25 @@ where
     let n = match stream.read(&mut buffer).await {
         Ok(0) => {
             return_buffer(buffer);
-            return Ok(());
+            return Ok(())
         }
         Ok(n) => n,
         Err(e) => {
             return_buffer(buffer);
-            return Err(e);
+            return Err(e)
         }
     };
 
-    // Use Patricia Trie detection for all architectures
+    // Use optimized detection combining all available methods
     let protocol = {
-        let detector = PatriciaDetector::new();
-        detector.detect(&buffer[..n])
+        let detector = ProtocolDetector::new();
+        detector.detect_best(&buffer[..n])
     };
 
     debug!("Detected protocol: {:?} from {} bytes", protocol, n);
 
     // Protocol-specific handling with optimizations
-    let result = match protocol {
+    let result = match protocol.protocol {
         Protocol::Socks5 => {
             handle_socks5_optimized(&buffer[..n], stream).await
         }
@@ -89,7 +89,8 @@ where
         Protocol::Http2 => {
             handle_http2_optimized(&buffer[..n], stream).await
         }
-        Protocol::Unknown => {
+        Protocol::Unknown | Protocol::WebSocket | Protocol::Doh | 
+        Protocol::Upnp | Protocol::Bonjour => {
             // Default to HTTP for unknown protocols
             handle_http_optimized(&buffer[..n], stream).await
         }
@@ -100,7 +101,7 @@ where
 }
 
 /// Optimized HTTP handler with zero-copy forwarding
-async fn handle_http_optimized<S>(initial_data: &[u8], stream: S) -> io::Result<()>
+async fn handle_http_optimized<S>(initial_data: &[u8], stream: S) -> io::Result<()> 
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -144,7 +145,7 @@ where
 }
 
 /// Optimized SOCKS5 handler
-async fn handle_socks5_optimized<S>(initial_data: &[u8], mut stream: S) -> io::Result<()>
+async fn handle_socks5_optimized<S>(initial_data: &[u8], mut stream: S) -> io::Result<()> 
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -169,7 +170,7 @@ where
 }
 
 /// TLS passthrough with SNI extraction
-async fn handle_tls_passthrough<S>(initial_data: &[u8], stream: S) -> io::Result<()>
+async fn handle_tls_passthrough<S>(initial_data: &[u8], stream: S) -> io::Result<()> 
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -186,7 +187,7 @@ where
 }
 
 /// Handle HAProxy PROXY protocol
-async fn handle_proxy_protocol<S>(initial_data: &[u8], stream: S) -> io::Result<()>
+async fn handle_proxy_protocol<S>(initial_data: &[u8], stream: S) -> io::Result<()> 
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -216,7 +217,7 @@ where
 }
 
 /// Optimized HTTP/2 handler
-async fn handle_http2_optimized<S>(initial_data: &[u8], stream: S) -> io::Result<()>
+async fn handle_http2_optimized<S>(initial_data: &[u8], stream: S) -> io::Result<()> 
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -228,7 +229,7 @@ where
 
 // Helper functions
 
-async fn handle_connect_tunnel<S>(mut stream: S, target: &str) -> io::Result<()>
+async fn handle_connect_tunnel<S>(mut stream: S, target: &str) -> io::Result<()> 
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -245,8 +246,9 @@ where
     }
 }
 
-async fn handle_http_forward<S>(stream: S, request: &[u8], target: &str) -> io::Result<()>
+async fn handle_http_forward<S>(stream: S, request: &[u8], target: &str) -> io::Result<()> 
 where
+
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     match TcpStream::connect(target).await {
@@ -262,7 +264,7 @@ where
     }
 }
 
-async fn forward_with_initial_data<S>(stream: S, initial_data: &[u8], target: &str) -> io::Result<()>
+async fn forward_with_initial_data<S>(stream: S, initial_data: &[u8], target: &str) -> io::Result<()> 
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -277,7 +279,7 @@ where
     }
 }
 
-async fn handle_socks5_request<S>(mut stream: S) -> io::Result<()>
+async fn handle_socks5_request<S>(mut stream: S) -> io::Result<()> 
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -311,8 +313,9 @@ where
     }
 }
 
-async fn read_socks5_address<S>(stream: &mut S, atyp: u8) -> io::Result<String>
+async fn read_socks5_address<S>(stream: &mut S, atyp: u8) -> io::Result<String> 
 where
+
     S: AsyncRead + Unpin,
 {
     match atyp {
@@ -341,11 +344,14 @@ where
     }
 }
 
-async fn send_error_response<S>(mut stream: S, code: u16, message: &str) -> io::Result<()>
+async fn send_error_response<S>(mut stream: S, code: u16, message: &str) -> io::Result<()> 
 where
     S: AsyncWrite + Unpin,
 {
-    let response = format!("HTTP/1.1 {} {}\r\nContent-Length: 0\r\n\r\n", code, message);
+    let response = format!("HTTP/1.1 {} {}
+Content-Length: 0
+
+", code, message);
     stream.write_all(response.as_bytes()).await
 }
 
@@ -375,7 +381,7 @@ fn extract_sni_from_tls(data: &[u8]) -> Option<String> {
 }
 
 /// Optimized relay using splice/sendfile when available
-async fn relay_optimized<S1, S2>(client: S1, server: S2) -> io::Result<()>
+async fn relay_optimized<S1, S2>(client: S1, server: S2) -> io::Result<()> 
 where
     S1: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     S2: AsyncRead + AsyncWrite + Unpin + Send + 'static,

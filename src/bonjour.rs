@@ -2,9 +2,8 @@ use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::collections::HashMap;
 use log::{debug, error, info, warn};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::UdpSocket;
-#[cfg(feature = "doh")]
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use hickory_resolver::TokioAsyncResolver;
 
 use crate::types::StandardPort;
@@ -28,12 +27,10 @@ pub struct BonjourServer {
     local_ip: Ipv4Addr,
     hostname: String,
     services: HashMap<String, BonjourService>,
-    #[cfg(feature = "doh")]
     resolver: TokioAsyncResolver,
 }
 
 impl BonjourServer {
-    #[cfg(feature = "doh")]
     pub fn new(local_ip: Ipv4Addr, hostname: String, resolver: TokioAsyncResolver) -> Self {
         let mut server = Self {
             local_ip,
@@ -49,26 +46,11 @@ impl BonjourServer {
         server
     }
 
-    #[cfg(not(feature = "doh"))]
-    pub fn new(local_ip: Ipv4Addr, hostname: String) -> Self {
-        let mut server = Self {
-            local_ip,
-            hostname: if hostname.ends_with(".local") {
-                hostname
-            } else {
-                format!("{}.local", hostname)
-            },
-            services: HashMap::new(),
-        };
-        server.add_default_services();
-        server
-    }
-
     fn add_default_services(&mut self) {
         let proxy_service = BonjourService {
             name: "LiteBike Proxy".to_string(),
             service_type: "_http._tcp.local".to_string(),
-            port: StandardPort::HttpProxy as u16,
+            port: 8080,
             txt_records: vec![
                 "txtvers=1".to_string(),
                 "proxy=true".to_string(),
@@ -83,7 +65,7 @@ impl BonjourServer {
         let socks_service = BonjourService {
             name: "LiteBike SOCKS5".to_string(),
             service_type: "_socks._tcp.local".to_string(),
-            port: StandardPort::Socks5 as u16,
+            port: 1080,
             txt_records: vec![
                 "txtvers=1".to_string(),
                 "version=5".to_string(),
@@ -97,7 +79,7 @@ impl BonjourServer {
         self.services.insert("_socks._tcp.local".to_string(), socks_service);
     }
 
-    pub async fn handle_mdns_request<S>(&self, stream: S, request: &str) -> io::Result<()>
+    pub async fn handle_mdns_request<S>(&self, stream: S, request: &str) -> io::Result<()> 
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
@@ -110,7 +92,7 @@ impl BonjourServer {
         }
     }
 
-    async fn handle_local_domain_request<S>(&self, stream: S, request: &str) -> io::Result<()>
+    async fn handle_local_domain_request<S>(&self, stream: S, request: &str) -> io::Result<()> 
     where
         S: AsyncWrite + Unpin,
     {
@@ -130,7 +112,7 @@ impl BonjourServer {
         }
     }
 
-    async fn proxy_dns_request<S>(&self, stream: S, request: &str) -> io::Result<()>
+    async fn proxy_dns_request<S>(&self, stream: S, request: &str) -> io::Result<()> 
     where
         S: AsyncWrite + Unpin,
     {
@@ -138,17 +120,20 @@ impl BonjourServer {
         if let Some(domain) = domain {
             debug!("Proxying DNS request for: {}", domain);
             
-            match self.resolver.lookup_ip(&domain).await {
-                Ok(lookup) => {
-                    if let Some(ip) = lookup.iter().next() {
-                        self.send_ip_response(stream, &domain, ip).await
-                    } else {
+            
+            {
+                match self.resolver.lookup_ip(&domain).await {
+                    Ok(lookup) => {
+                        if let Some(ip) = lookup.iter().next() {
+                            self.send_ip_response(stream, &domain, ip).await
+                        } else {
+                            self.send_nxdomain_response(stream).await
+                        }
+                    }
+                    Err(e) => {
+                        error!("DNS resolution failed for {}: {}", domain, e);
                         self.send_nxdomain_response(stream).await
                     }
-                }
-                Err(e) => {
-                    error!("DNS resolution failed for {}: {}", domain, e);
-                    self.send_nxdomain_response(stream).await
                 }
             }
         } else {
@@ -159,7 +144,8 @@ impl BonjourServer {
     pub async fn start_mdns_advertising(&self) -> io::Result<()> {
         let socket = UdpSocket::bind("0.0.0.0:0").await?;
         let multicast_addr: SocketAddr = MDNS_MULTICAST_ADDR.parse()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("Invalid mDNS address: {}", e)))?;
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("Invalid mDNS address: {}", e)))
+            ?;
 
         info!("Starting mDNS advertising for hostname: {}", self.hostname);
 
@@ -192,20 +178,23 @@ impl BonjourServer {
             }
         }
 
-        match self.resolver.lookup_ip(domain).await {
-            Ok(lookup) => {
-                lookup.iter().next().ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::NotFound, "No IP found for .local domain")
-                })
-            }
-            Err(e) => {
-                warn!("mDNS resolution failed for {}: {}", domain, e);
-                let regular_domain = domain.trim_end_matches(".local");
-                match self.resolver.lookup_ip(regular_domain).await {
-                    Ok(lookup) => lookup.iter().next().ok_or_else(|| {
-                        io::Error::new(io::ErrorKind::NotFound, "No IP found after fallback")
-                    }),
-                    Err(e) => Err(io::Error::new(io::ErrorKind::NotFound, e.to_string()))
+        
+        {
+            match self.resolver.lookup_ip(domain).await {
+                Ok(lookup) => {
+                    lookup.iter().next().ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::NotFound, "No IP found for .local domain")
+                    })
+                }
+                Err(e) => {
+                    warn!("mDNS resolution failed for {}: {}", domain, e);
+                    let regular_domain = domain.trim_end_matches(".local");
+                    match self.resolver.lookup_ip(regular_domain).await {
+                        Ok(fallback_lookup) => fallback_lookup.iter().next().ok_or_else(|| {
+                            io::Error::new(io::ErrorKind::NotFound, "No IP found after fallback")
+                        }),
+                        Err(e) => Err(io::Error::new(io::ErrorKind::NotFound, e.to_string()))
+                    }
                 }
             }
         }
@@ -239,16 +228,7 @@ impl BonjourServer {
 
     fn create_mdns_announcement(&self, service: &BonjourService) -> String {
         format!(
-            "NOTIFY * HTTP/1.1\r\n\
-             HOST: {}\r\n\
-             CACHE-CONTROL: max-age={}\r\n\
-             NT: {}\r\n\
-             NTS: ssdp:alive\r\n\
-             SERVICE-TYPE: {}\r\n\
-             SERVICE-NAME: {}\r\n\
-             SERVICE-PORT: {}\r\n\
-             SERVICE-TXT: {}\r\n\
-             \r\n",
+            "NOTIFY * HTTP/1.1\r\n\tHOST: {}\r\n\tCACHE-CONTROL: max-age={}\r\n\tNT: {}\r\n\tNTS: ssdp:alive\r\n\tSERVICE-TYPE: {}\r\n\tSERVICE-NAME: {}\r\n\tSERVICE-PORT: {}\r\n\tSERVICE-TXT: {}\r\n\r\n",
             MDNS_MULTICAST_ADDR,
             MDNS_TTL,
             service.service_type,
@@ -259,17 +239,12 @@ impl BonjourServer {
         )
     }
 
-    async fn send_hostname_response<S>(&self, mut stream: S) -> io::Result<()>
+    async fn send_hostname_response<S>(&self, mut stream: S) -> io::Result<()> 
     where
         S: AsyncWrite + Unpin,
     {
         let response = format!(
-            "HTTP/1.1 200 OK\r\n\
-             Content-Type: application/dns-message\r\n\
-             Cache-Control: max-age={}\r\n\
-             \r\n\
-             HOSTNAME: {}\r\n\
-             IPv4: {}\r\n",
+            "HTTP/1.1 200 OK\r\n\tContent-Type: application/dns-message\r\n\tCache-Control: max-age={}\r\n\r\n\tHOSTNAME: {}\r\n\tIPv4: {}\r\n",
             MDNS_TTL,
             self.hostname,
             self.local_ip
@@ -277,20 +252,12 @@ impl BonjourServer {
         stream.write_all(response.as_bytes()).await
     }
 
-    async fn send_service_response<S>(&self, mut stream: S, service: &BonjourService) -> io::Result<()>
+    async fn send_service_response<S>(&self, mut stream: S, service: &BonjourService) -> io::Result<()> 
     where
         S: AsyncWrite + Unpin,
     {
         let response = format!(
-            "HTTP/1.1 200 OK\r\n\
-             Content-Type: application/dns-message\r\n\
-             Cache-Control: max-age={}\r\n\
-             \r\n\
-             SERVICE: {}\r\n\
-             TYPE: {}\r\n\
-             PORT: {}\r\n\
-             IPv4: {}\r\n\
-             TXT: {}\r\n",
+            "HTTP/1.1 200 OK\r\n\tContent-Type: application/dns-message\r\n\tCache-Control: max-age={}\r\n\r\n\tSERVICE: {}\r\n\tTYPE: {}\r\n\tPORT: {}\r\n\tIPv4: {}\r\n\tTXT: {}\r\n",
             MDNS_TTL,
             service.name,
             service.service_type,
@@ -301,17 +268,12 @@ impl BonjourServer {
         stream.write_all(response.as_bytes()).await
     }
 
-    async fn send_ip_response<S>(&self, mut stream: S, domain: &str, ip: IpAddr) -> io::Result<()>
+    async fn send_ip_response<S>(&self, mut stream: S, domain: &str, ip: IpAddr) -> io::Result<()> 
     where
         S: AsyncWrite + Unpin,
     {
         let response = format!(
-            "HTTP/1.1 200 OK\r\n\
-             Content-Type: application/dns-message\r\n\
-             Cache-Control: max-age={}\r\n\
-             \r\n\
-             DOMAIN: {}\r\n\
-             IP: {}\r\n",
+            "HTTP/1.1 200 OK\r\n\tContent-Type: application/dns-message\r\n\tCache-Control: max-age={}\r\n\r\n\tDOMAIN: {}\r\n\tIP: {}\r\n",
             MDNS_TTL,
             domain,
             ip
@@ -319,27 +281,20 @@ impl BonjourServer {
         stream.write_all(response.as_bytes()).await
     }
 
-    async fn send_nxdomain_response<S>(&self, mut stream: S) -> io::Result<()>
+    async fn send_nxdomain_response<S>(&self, mut stream: S) -> io::Result<()> 
     where
         S: AsyncWrite + Unpin,
     {
-        let response = "HTTP/1.1 404 Not Found\r\n\
-                       Content-Type: text/plain\r\n\
-                       \r\n\
-                       NXDOMAIN\r\n";
+        let response = "HTTP/1.1 404 Not Found\r\n\tContent-Type: text/plain\r\n\r\n\tNXDOMAIN\r\n";
         stream.write_all(response.as_bytes()).await
     }
 
-    async fn send_error_response<S>(&self, mut stream: S, message: &str) -> io::Result<()>
+    async fn send_error_response<S>(&self, mut stream: S, message: &str) -> io::Result<()> 
     where
         S: AsyncWrite + Unpin,
     {
         let response = format!(
-            "HTTP/1.1 400 Bad Request\r\n\
-             Content-Type: text/plain\r\n\
-             Content-Length: {}\r\n\
-             \r\n\
-             {}",
+            "HTTP/1.1 400 Bad Request\r\n\tContent-Type: text/plain\r\n\tContent-Length: {}\r\n\r\n\t{}",
             message.len(),
             message
         );
@@ -354,6 +309,7 @@ pub async fn is_bonjour_request(request: &str) -> bool {
     (request.contains("CONNECT") && request.contains(":5353")) ||
     request.contains("mDNS")
 }
+
 
 pub async fn bridge_mdns_query(query: &str, resolver: &TokioAsyncResolver) -> io::Result<Vec<IpAddr>> {
     debug!("Bridging mDNS query: {}", query);
@@ -401,7 +357,7 @@ pub async fn handle_bonjour(mut stream: PrefixedStream<TcpStream>) -> std::io::R
     debug!("Bonjour/mDNS request received: {}", request);
 
     // Extract local IP from stream or use default
-    let local_ip = stream.inner.local_addr()
+    let local_ip = stream.inner.local_addr() 
         .map(|addr| match addr.ip() {
             std::net::IpAddr::V4(ip) => ip,
             _ => std::net::Ipv4Addr::new(127, 0, 0, 1),
@@ -409,7 +365,7 @@ pub async fn handle_bonjour(mut stream: PrefixedStream<TcpStream>) -> std::io::R
         .unwrap_or_else(|_| std::net::Ipv4Addr::new(127, 0, 0, 1));
 
     // Use system resolver for mDNS queries
-    #[cfg(feature = "auto-discovery")]
+    
     let resolver = match hickory_resolver::TokioAsyncResolver::tokio_from_system_conf() {
         Ok(r) => r,
         Err(_) => hickory_resolver::TokioAsyncResolver::tokio(
@@ -417,25 +373,19 @@ pub async fn handle_bonjour(mut stream: PrefixedStream<TcpStream>) -> std::io::R
             hickory_resolver::config::ResolverOpts::default()
         ),
     };
-    
-    #[cfg(not(feature = "auto-discovery"))]
-    let resolver = ();
 
-    let hostname = hostname::get()
+    let hostname = hostname::get() 
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "litebike-proxy".to_string());
 
-    #[cfg(feature = "auto-discovery")]
     let bonjour_server = BonjourServer::new(local_ip, hostname, resolver);
-    #[cfg(not(feature = "auto-discovery"))]
-    let bonjour_server = BonjourServer::new(local_ip, hostname);
     bonjour_server.handle_mdns_request(stream, &request).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "auto-discovery")]
+    
     use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 
     #[tokio::test]
@@ -446,7 +396,8 @@ mod tests {
         assert!(!is_bonjour_request("GET http://example.com/ HTTP/1.1").await);
     }
 
-    #[tokio::test] 
+    #[tokio::test]
+    
     async fn test_bonjour_server_creation() {
         let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default());
         let server = BonjourServer::new(
@@ -462,6 +413,7 @@ mod tests {
     }
 
     #[test]
+    
     fn test_extract_domain_from_request() {
         let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default());
         let server = BonjourServer::new(

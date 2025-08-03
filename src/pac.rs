@@ -1,15 +1,15 @@
 use std::io;
 use std::net::Ipv4Addr;
 use log::{debug, info};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-#[cfg(feature = "auto-discovery")]
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, AsyncReadExt};
+
 use serde::{Deserialize, Serialize};
 
 use crate::types::StandardPort;
 use crate::universal_listener::PrefixedStream;
 use tokio::net::TcpStream;
 
-#[cfg(feature = "auto-discovery")]
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PacConfig {
     pub proxy_host: String,
@@ -21,13 +21,13 @@ pub struct PacConfig {
     pub bypass_local: bool,
 }
 
-#[cfg(feature = "auto-discovery")]
+
 impl Default for PacConfig {
     fn default() -> Self {
         Self {
             proxy_host: "localhost".to_string(),
-            proxy_port: StandardPort::HttpProxy as u16,
-            socks_port: StandardPort::Socks5 as u16,
+            proxy_port: 8080,
+            socks_port: 1080,
             direct_domains: vec![
                 "localhost".to_string(),
                 "127.0.0.1".to_string(),
@@ -254,11 +254,7 @@ impl PacServer {
         S: AsyncWrite + Unpin,
     {
         let response = format!(
-            "HTTP/1.1 {} {}\r\n\
-             Content-Type: text/plain\r\n\
-             Content-Length: {}\r\n\
-             \r\n\
-             {}",
+            "HTTP/1.1 {} {}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
             status, message, message.len(), message
         );
         stream.write_all(response.as_bytes()).await
@@ -270,6 +266,7 @@ pub async fn is_pac_request(request: &str) -> bool {
     request.contains("/wpad.dat") ||
     request.contains("/pac-config")
 }
+
 
 pub fn generate_macos_proxy_script(proxy_host: &str) -> String {
     format!(
@@ -341,7 +338,10 @@ echo "Proxy configuration disabled!"
 }
 
 /// Handler wrapper function for PAC requests - called by universal listener
-pub async fn handle_pac_request(mut stream: PrefixedStream<TcpStream>) -> std::io::Result<()> {
+pub async fn handle_pac_request<S>(mut stream: S) -> std::io::Result<()> 
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     use tokio::io::AsyncReadExt;
     
     let mut buffer = [0u8; 1024];
@@ -351,13 +351,12 @@ pub async fn handle_pac_request(mut stream: PrefixedStream<TcpStream>) -> std::i
     let request = String::from_utf8_lossy(&buffer[..n]);
     debug!("PAC request received: {}", request);
 
-    // Extract local IP from stream or use default
-    let local_ip = stream.inner.local_addr()
-        .map(|addr| match addr.ip() {
-            std::net::IpAddr::V4(ip) => ip,
-            _ => std::net::Ipv4Addr::new(127, 0, 0, 1),
-        })
-        .unwrap_or_else(|_| std::net::Ipv4Addr::new(127, 0, 0, 1));
+    // Use the actual server IP from environment or default
+    let local_ip = if let Ok(bind_ip) = std::env::var("BIND_IP") {
+        bind_ip.parse::<Ipv4Addr>().unwrap_or_else(|_| Ipv4Addr::new(0, 0, 0, 0))
+    } else {
+        Ipv4Addr::new(0, 0, 0, 0)
+    };
 
     let pac_config = PacConfig::default();
     let mut pac_server = PacServer::new(local_ip, pac_config);
@@ -425,7 +424,7 @@ mod tests {
     fn test_direct_conditions_generation() {
         let mut config = PacConfig::default();
         config.direct_domains = vec![
-            "example.com".to_string(),
+            "localhost".to_string(),
             "*.github.com".to_string(),
             "test*.local".to_string(),
         ];
@@ -433,7 +432,7 @@ mod tests {
         let server = PacServer::new(Ipv4Addr::new(127, 0, 0, 1), config);
         let conditions = server.generate_direct_conditions();
         
-        assert!(conditions.contains("host == \"example.com\""));
+        assert!(conditions.contains("host == \"localhost\""));
         assert!(conditions.contains("dnsDomainIs(host, \"github.com\")"));
         assert!(conditions.contains("shExpMatch(host, \"test*.local\")"));
     }

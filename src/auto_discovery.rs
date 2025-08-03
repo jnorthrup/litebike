@@ -6,14 +6,12 @@ use std::sync::Arc;
 use log::{debug, info, warn};
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::RwLock;
-
 use crate::pac::{PacConfig, PacServer};
 use crate::bonjour::BonjourServer;
 use crate::upnp::UpnpServer;
-use crate::patricia_detector::PatriciaDetector;
+use crate::protocol_detector::ProtocolDetector;
 use crate::types::StandardPort;
 
-#[cfg(feature = "doh")]
 use hickory_resolver::{TokioAsyncResolver, config::{ResolverConfig, ResolverOpts}};
 
 /// Unified auto-discovery service that cheaply coordinates all discovery protocols
@@ -23,7 +21,7 @@ pub struct AutoDiscovery {
     pac_server: Arc<RwLock<PacServer>>,
     bonjour_server: Arc<RwLock<BonjourServer>>,
     upnp_server: Arc<RwLock<UpnpServer>>,
-    detector: Arc<PatriciaDetector>,
+    detector: Arc<ProtocolDetector>,
 }
 
 impl AutoDiscovery {
@@ -31,8 +29,8 @@ impl AutoDiscovery {
         // Configure PAC with smart defaults
         let pac_config = PacConfig {
             proxy_host: local_ip.to_string(),
-            proxy_port: StandardPort::HttpProxy as u16,
-            socks_port: StandardPort::Socks5 as u16,
+            proxy_port: 8080,
+            socks_port: 1080,
             direct_domains: vec![
                 "localhost".to_string(),
                 "*.local".to_string(),
@@ -48,25 +46,18 @@ impl AutoDiscovery {
         let pac_server = Arc::new(RwLock::new(PacServer::new(local_ip, pac_config)));
         
         // Create resolver for DOH-enabled services
-        #[cfg(feature = "doh")]
         let resolver = {
             let config = ResolverConfig::cloudflare();
             let opts = ResolverOpts::default();
             TokioAsyncResolver::tokio(config, opts)
         };
         
-        #[cfg(feature = "doh")]
         let bonjour_server = Arc::new(RwLock::new(
             BonjourServer::new(local_ip, hostname.clone(), resolver)
         ));
         
-        #[cfg(not(feature = "doh"))]
-        let bonjour_server = Arc::new(RwLock::new(
-            BonjourServer::new(local_ip, hostname.clone())
-        ));
-        
         let upnp_server = Arc::new(RwLock::new(UpnpServer::new(local_ip)));
-        let detector = Arc::new(PatriciaDetector::new());
+        let detector = Arc::new(ProtocolDetector::new());
 
         Self {
             local_ip,
@@ -82,8 +73,8 @@ impl AutoDiscovery {
     pub async fn start(&self) -> std::io::Result<()> {
         info!("🚀 Starting auto-discovery services on {}", self.local_ip);
         
-        // Start WPAD/PAC HTTP server on port 80 (if possible) or 8888
-        self.start_wpad_server().await?;
+        // Skip WPAD/PAC server - the main universal listener handles this
+        // self.start_wpad_server().await?;
         
         // Start Bonjour/mDNS announcements
         self.start_bonjour().await?;
@@ -132,11 +123,11 @@ impl AutoDiscovery {
                         let mut buffer = [0u8; 1024];
                         match stream.read(&mut buffer).await {
                             Ok(n) if n > 0 => {
-                                // Use Patricia detector for protocol detection
-                                let (protocol, _) = detector.detect_with_length(&buffer[..n]);
+                                // Use protocol detector for protocol detection
+                                let result = detector.detect(&buffer[..n]);
                                 
                                 // Only handle HTTP requests for PAC/WPAD
-                                if matches!(protocol, crate::patricia_detector::Protocol::Http) {
+                                if matches!(result.protocol, crate::protocol_detector::Protocol::Http) {
                                     let request = String::from_utf8_lossy(&buffer[..n]);
                                     if let Err(e) = pac_server.write().await.handle_request(stream, &request).await {
                                         debug!("PAC server error: {}", e);
@@ -209,7 +200,7 @@ impl AutoDiscovery {
         
         // UPnP port mapping would go here
         info!("UPnP port mapping configured for HTTP:{} and SOCKS5:{}", 
-              StandardPort::HttpProxy as u16, StandardPort::Socks5 as u16);
+              8080, 1080);
         
         Ok(())
     }

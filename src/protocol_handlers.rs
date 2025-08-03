@@ -10,15 +10,15 @@ use async_trait::async_trait;
 
 use crate::protocol_registry::{ProtocolDetector, ProtocolHandler, ProtocolDetectionResult};
 use crate::universal_listener::PrefixedStream;
-#[cfg(feature = "auto-discovery")]
+
 use crate::{pac, bonjour};
-#[cfg(feature = "upnp")]
+
 use crate::upnp;
-#[cfg(feature = "doh")]
+
 use hickory_resolver::TokioAsyncResolver;
-#[cfg(feature = "doh")]
+
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-#[cfg(feature = "doh")]
+
 use base64::{Engine as _, engine::general_purpose};
 
 // ===== HTTP Protocol Detector =====
@@ -140,7 +140,7 @@ impl HttpHandler {
         }
     }
     
-    async fn relay_streams<S1, S2>(&self, mut client: S1, mut server: S2) -> io::Result<()>
+    async fn relay_streams<S1, S2>(&self, mut client: S1, mut server: S2) -> io::Result<()> 
     where
         S1: AsyncRead + AsyncWrite + Unpin,
         S2: AsyncRead + AsyncWrite + Unpin,
@@ -184,7 +184,10 @@ impl HttpHandler {
     
     async fn send_error_response(&self, mut stream: PrefixedStream<TcpStream>, status: u16, message: &str) -> io::Result<()> {
         let response = format!(
-            "HTTP/1.1 {} {}\r\nContent-Length: 0\r\n\r\n",
+            "HTTP/1.1 {} {}
+Content-Length: 0
+
+",
             status, message
         );
         stream.write_all(response.as_bytes()).await
@@ -200,32 +203,32 @@ impl ProtocolHandler for HttpHandler {
         let n = stream.read(&mut buffer).await?;
         
         if n == 0 {
-            return Ok(());
+            return Ok(())
         }
         
         let request = String::from_utf8_lossy(&buffer[..n]);
         debug!("HTTP request received: {}", request.lines().next().unwrap_or(""));
         
         // Check for specialized protocol requests first
-        #[cfg(feature = "auto-discovery")]
+        
         if pac::is_pac_request(&request).await {
             info!("Routing to PAC handler");
             return pac::handle_pac_request(stream).await;
         }
         
-        #[cfg(feature = "auto-discovery")]
+        
         if request.contains("/wpad.dat") {
             info!("Routing to WPAD handler");
             return pac::handle_wpad_request(stream).await;
         }
         
-        #[cfg(feature = "auto-discovery")]
+        
         if bonjour::is_bonjour_request(&request).await {
             info!("Routing to Bonjour handler");
             return bonjour::handle_bonjour(stream).await;
         }
         
-        #[cfg(feature = "upnp")]
+        
         if upnp::is_upnp_request(&request).await {
             info!("Routing to UPnP handler");
             return upnp::handle_upnp_request(stream).await;
@@ -288,7 +291,7 @@ impl Socks5Handler {
         // Handle SOCKS5 handshake - be more lenient with protocol versions
         let mut buf = [0u8; 2];
         match stream.read_exact(&mut buf).await {
-            Ok(_) => {},
+            Ok(_) => {}, 
             Err(e) => {
                 debug!("Failed to read SOCKS5 handshake: {}", e);
                 return Err(e);
@@ -431,7 +434,7 @@ impl Socks5Handler {
                     buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15],
                 ]);
                 let port = u16::from_be_bytes([buf[16], buf[17]]);
-                Ok(format!("[{}]:{}", ip, port))
+                Ok(format!("[{}]::{}", ip, port))
             }
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported address type")),
         }
@@ -558,18 +561,11 @@ impl ProtocolDetector for DohDetector {
 
 // ===== DoH (DNS-over-HTTPS) Protocol Handler =====
 
-#[cfg(feature = "doh")]
 pub struct DohHandler {
     resolver: TokioAsyncResolver,
 }
 
-#[cfg(not(feature = "doh"))]
-pub struct DohHandler {
-    _phantom: std::marker::PhantomData<()>,
-}
-
 impl DohHandler {
-    #[cfg(feature = "doh")]
     pub async fn new() -> Self {
         let config = ResolverConfig::cloudflare();
         let opts = ResolverOpts::default();
@@ -578,12 +574,7 @@ impl DohHandler {
         Self { resolver }
     }
     
-    #[cfg(not(feature = "doh"))]
-    pub async fn new() -> Self {
-        Self { _phantom: std::marker::PhantomData }
-    }
     
-    #[cfg(feature = "doh")]
     pub async fn handle_doh_request(&self, stream: PrefixedStream<TcpStream>, request: &str) -> io::Result<()> {
         debug!("Handling DoH request");
         
@@ -661,11 +652,7 @@ impl DohHandler {
         match self.process_dns_query(&dns_query_data).await {
             Ok(response_data) => {
                 let response = format!(
-                    "HTTP/1.1 200 OK\r\n\
-                     Content-Type: application/dns-message\r\n\
-                     Content-Length: {}\r\n\
-                     Cache-Control: max-age=300\r\n\
-                     \r\n",
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: {}\r\nCache-Control: max-age=300\r\n\r\n",
                     response_data.len()
                 );
                 
@@ -692,11 +679,7 @@ impl DohHandler {
                     match self.process_dns_query(&dns_query_data).await {
                         Ok(response_data) => {
                             let response = format!(
-                                "HTTP/1.1 200 OK\r\n\
-                                 Content-Type: application/dns-message\r\n\
-                                 Content-Length: {}\r\n\
-                                 Cache-Control: max-age=300\r\n\
-                                 \r\n",
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: {}\r\nCache-Control: max-age=300\r\n\r\n",
                                 response_data.len()
                             );
                             
@@ -775,11 +758,11 @@ impl DohHandler {
     
     async fn send_doh_error(&self, mut stream: PrefixedStream<TcpStream>, status: u16, message: &str) -> io::Result<()> {
         let response = format!(
-            "HTTP/1.1 {} {}\r\n\
-             Content-Type: text/plain\r\n\
-             Content-Length: {}\r\n\
-             \r\n\
-             {}",
+            "HTTP/1.1 {} {}
+Content-Type: text/plain
+Content-Length: {}
+
+{}",
             status, message, message.len(), message
         );
         stream.write_all(response.as_bytes()).await
@@ -795,7 +778,7 @@ impl ProtocolHandler for DohHandler {
         let n = stream.read(&mut buffer).await?;
         
         if n == 0 {
-            return Ok(());
+            return Ok(())
         }
         
         let request = String::from_utf8_lossy(&buffer[..n]);
@@ -873,7 +856,7 @@ mod tests {
         assert!(result.confidence >= 200);
         
         // Test GET to /dns-query
-        let doh_get = b"GET /dns-query?dns=AAABAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB HTTP/1.1\r\n";
+        let doh_get = b"GET /dns-query?dns=AAABAAABAAAAAAAAA3d3dwdleGFtcGxlA2Njb20AAAQAB HTTP/1.1\r\n";
         let result = detector.detect(doh_get);
         assert_eq!(result.protocol_name, "doh");
         assert!(result.confidence >= 200);

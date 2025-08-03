@@ -396,43 +396,32 @@ start_client() {
 # Configure system proxy settings
 configure_system_proxy() {
     local host="$1"
-    local http_port="${2:-$HTTP_PORT}" 
-    local socks_port="${3:-$SOCKS_PORT}"
+    local pac_url="http://$host:8888/proxy.pac"
     
     echo -e "${YELLOW}Configuring system proxy...${NC}"
     
     case $(detect_platform) in
         "macos")
-            local wifi_service=$(networksetup -listallnetworkservices | grep -E "Wi-Fi|AirPort" | head -1 || echo "Wi-Fi")
+            local wifi_service=$(networksetup -listallnetworkservices | grep -E 'Wi-Fi|AirPort' | head -1 || echo "Wi-Fi")
             echo -e "${BLUE}Network service: $wifi_service${NC}"
             
-            # Configure HTTP/HTTPS proxy
-            networksetup -setwebproxy "$wifi_service" "$host" "$http_port"
-            networksetup -setsecurewebproxy "$wifi_service" "$host" "$http_port"
-            networksetup -setwebproxystate "$wifi_service" on
-            networksetup -setsecurewebproxystate "$wifi_service" on
+            # Configure PAC URL
+            networksetup -setautoproxyurl "$wifi_service" "$pac_url"
+            networksetup -setautoproxystate "$wifi_service" on
             
-            # Configure SOCKS proxy
-            networksetup -setsocksfirewallproxy "$wifi_service" "$host" "$socks_port"
-            networksetup -setsocksfirewallproxystate "$wifi_service" on
-            
-            echo -e "${GREEN}✅ macOS system proxy configured${NC}"
+            echo -e "${GREEN}✅ macOS system proxy configured to PAC URL${NC}"
             ;;
         *)
             # Environment variables for other platforms
-            export HTTP_PROXY="http://$host:$http_port"
-            export HTTPS_PROXY="http://$host:$http_port"
-            export ALL_PROXY="socks5h://$host:$socks_port"
-            export http_proxy="http://$host:$http_port"
-            export https_proxy="http://$host:$http_port"
-            export all_proxy="socks5h://$host:$socks_port"
+            export http_proxy="$pac_url"
+            export https_proxy="$pac_url"
+            export all_proxy="$pac_url"
             
-            echo -e "${GREEN}✅ Environment proxy configured${NC}"
+            echo -e "${GREEN}✅ Environment proxy configured to PAC URL${NC}"
             ;;
     esac
     
-    echo -e "HTTP/HTTPS: ${YELLOW}$host:$http_port${NC}"
-    echo -e "SOCKS5: ${YELLOW}$host:$socks_port${NC}"
+    echo -e "PAC URL: ${YELLOW}$pac_url${NC}"
 }
 
 # Test proxy connection

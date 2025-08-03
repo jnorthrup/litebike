@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use log::{debug, info, warn, error};
 use crate::types::{ProtocolType, ProtocolDetectionResult};
-use crate::patricia_detector::{PatriciaDetector, Protocol};
+use crate::protocol_detector::{ProtocolDetector, Protocol};
 
 #[derive(Clone)]
 pub struct ProtocolMock {
@@ -57,7 +57,7 @@ pub struct MockState {
 }
 
 pub struct MassiveProtocolTester {
-    detector: PatriciaDetector,
+    detector: ProtocolDetector,
     mocks: HashMap<ProtocolType, ProtocolMock>,
     global_behaviors: Vec<MockBehavior>,
     stress_tests: Vec<StressTest>,
@@ -138,7 +138,7 @@ pub enum FailureScenario {
 impl MassiveProtocolTester {
     pub fn new() -> Self {
         Self {
-            detector: PatriciaDetector::new(),
+            detector: ProtocolDetector::new(),
             mocks: HashMap::new(),
             global_behaviors: vec![],
             stress_tests: Self::create_massive_stress_tests(),
@@ -551,15 +551,15 @@ impl MassiveProtocolTester {
         ];
 
         for (name, payload, expected) in legitimate_payloads {
-            let (detected, bytes) = self.detector.detect_with_length(&payload);
-            let correct = std::mem::discriminant(&detected) == std::mem::discriminant(&expected);
+            let result = self.detector.detect(&payload);
+            let correct = std::mem::discriminant(&result.protocol) == std::mem::discriminant(&expected);
             
             results.total_tests += 1;
             if correct {
                 results.correct_detections += 1;
             } else {
                 results.incorrect_detections += 1;
-                results.failures.push(format!("{}: expected {:?}, got {:?}", name, expected, detected));
+                results.failures.push(format!("{}: expected {:?}, got {:?}", name, expected, result.protocol));
             }
         }
 
@@ -575,14 +575,14 @@ impl MassiveProtocolTester {
         ];
 
         for (name, payload) in malformed_payloads {
-            let (detected, _) = self.detector.detect_with_length(&payload);
+            let result = self.detector.detect(&payload);
             results.total_tests += 1;
             
-            if matches!(detected, Protocol::Unknown) {
+            if matches!(result.protocol, Protocol::Unknown) {
                 results.correct_rejections += 1;
             } else {
                 results.false_positives += 1;
-                results.failures.push(format!("{}: incorrectly detected as {:?}", name, detected));
+                results.failures.push(format!("{}: incorrectly detected as {:?}", name, result.protocol));
             }
         }
 
@@ -601,7 +601,7 @@ impl MassiveProtocolTester {
 
         for i in 0..test.concurrent_connections {
             let patterns = test.payload_patterns.clone();
-            let detector = PatriciaDetector::new();
+            let detector = ProtocolDetector::new();
             
             let handle = tokio::spawn(async move {
                 let mut connection_stats = ConnectionStats::default();
@@ -612,7 +612,7 @@ impl MassiveProtocolTester {
                         let test_start = Instant::now();
                         
                         // Test protocol detection
-                        let (protocol, bytes) = detector.detect_with_length(pattern);
+                        let result = detector.detect(pattern);
                         
                         let test_duration = test_start.elapsed();
                         connection_stats.total_tests += 1;
@@ -623,7 +623,7 @@ impl MassiveProtocolTester {
                             connection_stats.slow_tests += 1;
                         }
                         
-                        if matches!(protocol, Protocol::Unknown) {
+                        if matches!(result.protocol, Protocol::Unknown) {
                             connection_stats.failed_detections += 1;
                         } else {
                             connection_stats.successful_detections += 1;
@@ -673,12 +673,12 @@ impl MassiveProtocolTester {
         let start_time = Instant::now();
         
         // Test with protocol detector
-        let (detected_protocol, bytes_consumed) = self.detector.detect_with_length(&payload.payload);
+        let result = self.detector.detect(&payload.payload);
         
         let processing_time = start_time.elapsed();
         
         // Determine if the outcome matches expectations
-        let outcome = match detected_protocol {
+        let outcome = match result.protocol {
             Protocol::Unknown => ExpectedOutcome::Reject,
             _ => ExpectedOutcome::Accept,
         };
@@ -692,8 +692,8 @@ impl MassiveProtocolTester {
             name: payload.name.clone(),
             attack_type: payload.attack_type.clone(),
             payload_size: payload.payload.len(),
-            detected_protocol,
-            bytes_consumed,
+            protocol: result.protocol,
+            bytes_consumed: result.bytes_consumed,
             processing_time,
             matches_expectation,
             crashed: false, // If we got here, it didn't crash
@@ -714,13 +714,13 @@ impl MassiveProtocolTester {
             let payload: Vec<u8> = (0..payload_size).map(|_| (fast_random() % 256) as u8).collect();
             
             let test_start = Instant::now();
-            let (protocol, bytes) = self.detector.detect_with_length(&payload);
+            let result = self.detector.detect(&payload);
             let test_duration = test_start.elapsed();
             
             results.total_tests += 1;
             results.total_bytes_tested += payload.len();
             
-            match protocol {
+            match result.protocol {
                 Protocol::Unknown => results.rejected += 1,
                 _ => results.detected += 1,
             }
@@ -854,7 +854,7 @@ pub struct AdversarialTestResult {
     pub name: String,
     pub attack_type: AttackType,
     pub payload_size: usize,
-    pub detected_protocol: Protocol,
+    pub protocol: Protocol,
     pub bytes_consumed: usize,
     pub processing_time: Duration,
     pub matches_expectation: bool,
@@ -899,8 +899,8 @@ impl ProtocolMocker {
         ];
 
         for (name, payload) in test_cases {
-            let (protocol, bytes_read) = self.tester.detector.detect_with_length(&payload);
-            results.add_test(name, payload.len(), protocol, bytes_read);
+            let result = self.tester.detector.detect(&payload);
+            results.add_test(name, payload.len(), result.protocol, result.bytes_consumed);
         }
 
         results
@@ -917,7 +917,7 @@ pub struct TestResults {
 pub struct TestResult {
     pub name: String,
     pub payload_size: usize,
-    pub detected_protocol: Protocol,
+    pub protocol: Protocol,
     pub bytes_consumed: usize,
 }
 
@@ -941,7 +941,7 @@ impl TestResults {
         self.tests.push(TestResult {
             name: name.to_string(),
             payload_size: size,
-            detected_protocol: protocol,
+            protocol: protocol,
             bytes_consumed: bytes,
         });
     }
@@ -971,8 +971,8 @@ fn fast_random() -> usize {
 
 // Fuzzing harness for continuous testing
 pub fn fuzz_protocol_detector(data: &[u8]) {
-    let detector = PatriciaDetector::new();
-    let _ = detector.detect_with_length(data);
+    let detector = ProtocolDetector::new();
+    let _ = detector.detect(data);
     // If it doesn't panic, we're good
 }
 
