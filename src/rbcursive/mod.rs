@@ -26,6 +26,27 @@ pub struct RBCursive {
 impl RBCursive {
     /// Create new RBCursive instance with optimal SIMD strategy for current platform
     pub fn new() -> Self {
+        #[cfg(feature = "simd")]
+        {
+            use crate::rbcursive::simd::create_optimal_scanner;
+            Self {
+                scanner: create_optimal_scanner(),
+                pattern_scanner: PatternScanner::new(),
+            }
+        }
+        #[cfg(not(feature = "simd"))]
+        {
+            use crate::rbcursive::simd::create_optimal_scanner;
+            Self {
+                scanner: create_optimal_scanner(),
+                pattern_scanner: PatternScanner::new(),
+            }
+        }
+    }
+    
+    /// Create new RBCursive instance with full SIMD acceleration (requires rbcursive-full feature)
+    #[cfg(feature = "rbcursive-full")]
+    pub fn new_with_full_simd() -> Self {
         use crate::rbcursive::simd::create_optimal_scanner;
         
         Self {
