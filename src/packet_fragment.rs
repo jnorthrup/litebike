@@ -2,10 +2,9 @@
 // Intelligent fragmentation to bypass deep packet inspection
 
 use std::collections::VecDeque;
-use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 use rand::Rng;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::time::sleep;
 
 /// Fragment configuration for DPI evasion
@@ -268,7 +267,7 @@ impl PacketFragmenter {
     
     /// Adaptive fragment sizing based on detection risk
     fn adaptive_fragment_size(&self, remaining: usize) -> usize {
-        let mut rng = rand::thread_rng();
+        let rng = rand::thread_rng();
         
         // Simple heuristic: vary size based on time and remaining data
         let time_factor = (Instant::now().elapsed().as_millis() % 1000) as f64 / 1000.0;

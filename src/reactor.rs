@@ -8,10 +8,10 @@ use tokio::net::TcpStream;
 use std::time::{Duration, Instant};
 
 use crate::taxonomy::{
-    WamBlock, WamElement, WamKey, SequenceId, SessionState, TransformCode,
-    Protocol, ConnectionState, mapping
+    WamBlock, SequenceId, SessionState,
+    Protocol, mapping
 };
-use crate::rbcursive::{RBCursive, ProtocolDetection};
+use crate::rbcursive::RBCursive;
 
 /// Channelized Reactor - Perfect event loop for WAM block execution
 pub struct ChannelizedReactor {

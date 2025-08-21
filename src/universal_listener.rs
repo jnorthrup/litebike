@@ -4,7 +4,7 @@ use tokio::net::TcpStream;
 use log::{debug, info};
 
 
-use crate::posix_sockets::{posix_peek, PosixTcpStream};
+use crate::posix_sockets::posix_peek;
 
 /// Protocol detection result
 #[derive(Debug)]

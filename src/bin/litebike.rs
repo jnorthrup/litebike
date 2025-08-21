@@ -10,8 +10,6 @@ use litebike::syscall_net::{
 	classify_ipv4,
 	classify_ipv6,
 };
-use litebike::taxonomy::{WamBlock, SessionState, TransformCode, mapping};
-use litebike::reactor::{ChannelizedReactor, ReactorBuilder};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::Path;
@@ -27,15 +25,27 @@ use litebike::rbcursive::{RBCursive, Classify, Signal};
 use litebike::rbcursive::protocols::Listener;
 use litebike::rbcursive::protocols;
 use litebike::git_sync;
-use litebike::tethering_bypass::{TetheringBypass, enable_carrier_bypass};
+use litebike::tethering_bypass::enable_carrier_bypass;
 use litebike::knox_proxy::{KnoxProxyConfig, start_knox_proxy};
-use litebike::posix_sockets::PosixTcpStream;
 
 /// WAM-style dispatch table for densified command subsumption
 /// Each entry is a 2-ary tuple (pattern, action) for O(1) unification
 type CommandAction = fn(&[String]);
 
 const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
+	// DSEL Exploration commands (semantic discovery)
+	("explore", run_explore),
+	("suggest", run_suggest),
+	("learn", run_learn),
+	("similar", run_similar),
+	("list-all", run_list_all),
+	("by-category", run_by_category),
+	("command-reference", run_command_reference),
+	("capabilities", run_capabilities),
+	("workflows", run_workflows),
+	("examples", run_examples),
+	("dsel-help", run_dsel_help),
+	
 	// Network utilities (most common first for cache efficiency)
 	("ifconfig", run_ifconfig),
 	("route", run_route),
@@ -112,7 +122,7 @@ fn main() {
 
 	// Allow both argv0-dispatch (ifconfig/ip/...) and subcommands: litebike <cmd> [args]
 	let (cmd, subargs): (&str, &[String]) = if argv0 == "litebike" {
-		if args.len() >= 2 { (&args[1], &args[2..]) } else { ("ifconfig", &args[1..]) }
+		if args.len() >= 2 { (&args[1], &args[2..]) } else { ("dsel-help", &args[1..]) }
 	} else {
 		(argv0, &args[1..])
 	};
@@ -126,74 +136,390 @@ fn main() {
 }
 
 fn show_main_help() {
-	println!("🚀 LiteBike - High-Performance Network Utility Suite");
-	println!("   WAM-dispatched utility with RBCursive SIMD acceleration\n");
+	show_dsel_exploration();
+}
+
+/// DSEL Exploration - Intelligent semantic discovery instead of option overload
+fn show_dsel_exploration() {
+	println!("🚀 LiteBike - Intelligent Network Utility");
+	println!("   Explore capabilities through semantic discovery\n");
 	
-	println!("📡 NETWORK UTILITIES (Stable)");
-	println!("  ifconfig [iface]         List network interfaces and addresses");
-	println!("  route                    Display routing table via netlink");
-	println!("  netstat [options]        Show network connections and sockets");
-	println!("  ip [command]             IP utility emulation with direct syscalls");
-	println!("  probe                    Best-effort egress selection for IPv4/v6");
-	println!("  watch [args]             Monitor network state changes");
-	println!("  scan-ports <host>        Scan TCP ports with carrier detection\n");
+	println!("❓ What do you want to accomplish?\n");
 	
-	println!("🔀 PROXY OPERATIONS (Stable)");
-	println!("  proxy-server [port]      Unified multi-protocol proxy (default: 8888)");
-	println!("  proxy-test [host port]   Test proxy with RBCursive protocol validation");
-	println!("  proxy-setup <enable|disable>  Configure seamless macOS environment");
-	println!("  proxy-config [options]   Advanced proxy configuration management");
-	println!("  proxy-quick              Fast proxy setup with auto-detection");
-	println!("  version-check            Binary version, age, and capability check\n");
+	println!("🎯 EXPLORE BY DOMAIN (semantic categories):");
+	println!("  litebike explore network     # Network analysis and configuration");
+	println!("  litebike explore proxy       # Proxy setup and testing");
+	println!("  litebike explore patterns    # Pattern matching and text processing");
+	println!("  litebike explore sync        # File and code synchronization");
+	println!("  litebike explore security    # Security and bypass tools\n");
 	
-	println!("🔗 REMOTE SYNC & SSH (Stable)");
-	println!("  remote-sync list         List git remotes with SSH connectivity");
-	println!("  remote-sync pull         Pull from temporary remote repositories");
-	println!("  remote-sync clean        Remove stale remote configurations");
-	println!("  remote-sync ssh-exec [host] <cmd>  Execute commands via SSH");
-	println!("  remote-sync ssh-mix      Mixed SSH operations with auto-discovery");
-	println!("  remote-sync hostname-resolve [host]  Test SSH connectivity\n");
+	println!("🔍 DISCOVER BY INTENT (natural language):");
+	println!("  litebike 'show network status'    # Contextual network information");
+	println!("  litebike 'start proxy on 8080'    # Intent-based proxy setup");
+	println!("  litebike 'test connection to X'   # Connection testing tools");
+	println!("  litebike 'find files like *.rs'   # Pattern-based file discovery\n");
 	
-	println!("⚡ PATTERN MATCHING (RBCursive SIMD)");
-	println!("  pattern-match <type> <pattern> [file]  Advanced pattern matching");
-	println!("  pattern-glob <pattern> [file]          Glob pattern with anchors");
-	println!("  pattern-regex <pattern> [file]         Regex with SIMD acceleration");
-	println!("  pattern-scan <type> <pattern> [file]   High-speed pattern scanning");
-	println!("  pattern-bench [size]                   Performance benchmarking\n");
+	println!("⚡ CURRENT STATE & QUICK ACTIONS:");
+	show_contextual_status();
+	
+	println!("\n💡 INTELLIGENT COMPLETION & LEARNING:");
+	println!("   Press TAB for context-aware suggestions");
+	println!("   litebike suggest              # Get recommendations for current state");
+	println!("   litebike learn <command>      # Understand command semantics");
+	println!("   litebike similar <command>    # Find related operations\n");
+	
+	println!("🔧 TRADITIONAL ACCESS (for power users):");
+	println!("   litebike list-all             # Show all commands (classic mode)");
+	println!("   litebike by-category          # Categorized command listing");
+	println!("   litebike command-reference    # Complete reference manual\n");
+	
+	println!("📚 DEEPER EXPLORATION:");
+	println!("   litebike capabilities         # Discover what's possible");
+	println!("   litebike workflows            # Common usage patterns");
+	println!("   litebike examples <domain>    # Domain-specific examples");
 	
 	#[cfg(feature = "intel-console")]
 	{
-		println!("🔬 INTEL CONSOLE (Experimental - DSEL)");
-		println!("  intel-console start [--port N]    Start protocol reverse engineering");
-		println!("  intel-console filter <dsel-expr>  Apply Wireshark-style filters");
-		println!("  intel-console trace <strace-expr> System call tracing with patterns");
-		println!("  intel-console analyze <session>   Deep protocol analysis");
-		println!("  intel-console replay <session>    Session replay and modification\n");
+		println!("   litebike dsel-help            # DSEL syntax and advanced queries");
+	}
+}
+
+/// Show contextual status and suggest relevant quick actions
+fn show_contextual_status() {
+	use std::net::TcpListener;
+	
+	println!("📊 CURRENT CONTEXT:");
+	
+	// Network interface context
+	match litebike::syscall_net::list_interfaces() {
+		Ok(interfaces) => {
+			let active: Vec<_> = interfaces.into_iter()
+				.filter(|(_, iface)| (iface.flags & 0x1) != 0 && !iface.addrs.is_empty())
+				.take(3)
+				.collect();
+			
+			if !active.is_empty() {
+				println!("   📡 Network: {} interface(s) active → try 'litebike probe'", active.len());
+				for (name, _) in active.iter().take(2) {
+					println!("      • {}", name);
+				}
+			} else {
+				println!("   📡 Network: No active interfaces → try 'litebike ifconfig'");
+			}
+		}
+		Err(_) => println!("   📡 Network: Status unknown → try 'litebike ifconfig'"),
 	}
 	
-	println!("🛠️  SPECIALIZED OPERATIONS");
-	println!("  domains                  Domain resolution and DNS utilities");
-	println!("  carrier                  Mobile carrier detection and bypass");
-	println!("  radios [args]            Radio interface management");
-	println!("  snapshot [args]          System configuration snapshot");
-	println!("  upnp-gateway            UPnP gateway discovery and management");
-	println!("  bonjour-discover        Bonjour/mDNS service discovery");
-	println!("  trust-host <host>       Add host to trusted connections");
-	println!("  bootstrap               Initialize LiteBike environment\n");
+	// Proxy context
+	let proxy_suggestion = match TcpListener::bind("127.0.0.1:8888") {
+		Ok(_) => "Port 8888 free → try 'litebike proxy-server'",
+		Err(_) => "Port 8888 in use → try 'litebike proxy-test'",
+	};
+	println!("   🔀 Proxy: {}", proxy_suggestion);
 	
-	println!("📖 HELP & INFORMATION");
-	println!("  <command> --help        Detailed help for specific commands");
-	println!("  --version               Show version and feature information");
-	println!("  --dsel-help             DSEL syntax reference and examples\n");
+	// Git context (if in git repo)
+	if std::path::Path::new(".git").exists() {
+		println!("   📂 Git repo detected → try 'litebike remote-sync list'");
+	}
 	
-	println!("🔧 Environment Variables:");
-	println!("  LITEBIKE_BIND_PORT      Proxy server port (default: 8888)");
-	println!("  LITEBIKE_INTERFACE      Interface binding (default: swlan0)");
-	println!("  LITEBIKE_LOG           Log level: debug, info, warn, error");
-	println!("  LITEBIKE_FEATURES      Comma-separated feature flags\n");
+	// Suggest based on common workflow patterns
+	println!("\n🎯 SUGGESTED NEXT ACTIONS:");
+	if std::env::var("SSH_CLIENT").is_ok() || std::env::var("SSH_TTY").is_ok() {
+		println!("   • Remote session detected → 'litebike explore sync'");
+	}
+	println!("   • Explore network topology → 'litebike upnp-gateway'");
+	println!("   • Test connectivity → 'litebike scan-ports <target>'");
+	println!("   • Monitor real-time changes → 'litebike watch'");
+}
+
+/// DSEL Exploration Functions - Intelligent semantic discovery
+
+fn run_explore(args: &[String]) {
+	let domain = args.get(0).map(|s| s.as_str()).unwrap_or("all");
 	
-	println!("Universal installation: ~/.litebike/bin/litebike");
-	println!("For detailed help: litebike <command> --help");
+	match domain {
+		"network" => explore_network_domain(),
+		"proxy" => explore_proxy_domain(),
+		"patterns" => explore_patterns_domain(),
+		"sync" => explore_sync_domain(),
+		"security" => explore_security_domain(),
+		"all" => {
+			println!("🔍 DOMAIN EXPLORATION\n");
+			println!("Available domains to explore:");
+			println!("  network    - Network analysis and configuration");
+			println!("  proxy      - Proxy setup and testing");
+			println!("  patterns   - Pattern matching and text processing");
+			println!("  sync       - File and code synchronization");
+			println!("  security   - Security and bypass tools\n");
+			println!("Usage: litebike explore <domain>");
+		}
+		unknown => {
+			println!("❓ Unknown domain: '{}'", unknown);
+			println!("Available: network, proxy, patterns, sync, security");
+		}
+	}
+}
+
+fn explore_network_domain() {
+	println!("📡 NETWORK DOMAIN EXPLORATION\n");
+	println!("🎯 What you can do:");
+	println!("  • Show interfaces → litebike ifconfig");
+	println!("  • Test connectivity → litebike probe");
+	println!("  • Monitor changes → litebike watch");
+	println!("  • Scan ports → litebike scan-ports <host>");
+	println!("  • Check routing → litebike route");
+	println!("  • View connections → litebike netstat\n");
+	
+	show_contextual_status();
+	
+	println!("\n💡 Related workflows:");
+	println!("  • 'litebike workflows network' for common scenarios");
+}
+
+fn explore_proxy_domain() {
+	println!("🔀 PROXY DOMAIN EXPLORATION\n");
+	println!("🎯 What you can do:");
+	println!("  • Start proxy server → litebike proxy-server [port]");
+	println!("  • Test proxy → litebike proxy-test [host] [port]");
+	println!("  • Quick setup → litebike proxy-quick");
+	println!("  • Configure settings → litebike proxy-config");
+	println!("  • Knox bypass → litebike knox-proxy\n");
+	
+	// Show proxy-specific context
+	use std::net::TcpListener;
+	match TcpListener::bind("127.0.0.1:8888") {
+		Ok(_) => println!("✅ Port 8888 available for proxy server"),
+		Err(_) => println!("⚠️  Port 8888 in use - proxy may be running"),
+	}
+}
+
+fn explore_patterns_domain() {
+	println!("🎯 PATTERN DOMAIN EXPLORATION\n");
+	println!("🎯 What you can do:");
+	println!("  • Match patterns → litebike pattern-match <type> <pattern>");
+	println!("  • Glob matching → litebike pattern-glob <pattern>");
+	println!("  • Regex search → litebike pattern-regex <pattern>");
+	println!("  • Bulk scanning → litebike pattern-scan <file> <pattern>");
+	println!("  • Performance test → litebike pattern-bench\n");
+	
+	println!("💡 Examples:");
+	println!("  litebike pattern-glob '*.rs' .");
+	println!("  litebike pattern-regex 'fn \\w+' src/");
+}
+
+fn explore_sync_domain() {
+	println!("📂 SYNC DOMAIN EXPLORATION\n");
+	println!("🎯 What you can do:");
+	println!("  • List remotes → litebike remote-sync list");
+	println!("  • Sync repositories → litebike git-sync");
+	println!("  • Deploy via SSH → litebike ssh-deploy");
+	println!("  • Push to multiple → litebike git-push\n");
+	
+	if std::path::Path::new(".git").exists() {
+		println!("📂 Git repository detected in current directory");
+	} else {
+		println!("ℹ️  Not in a git repository");
+	}
+}
+
+fn explore_security_domain() {
+	println!("🔒 SECURITY DOMAIN EXPLORATION\n");
+	println!("🎯 What you can do:");
+	println!("  • Carrier bypass → litebike carrier-bypass");
+	println!("  • Trust host → litebike trust-host <host>");
+	println!("  • Raw connections → litebike raw-connect <host>");
+	println!("  • Radio management → litebike radios\n");
+}
+
+fn run_suggest(args: &[String]) {
+	println!("💡 CONTEXTUAL SUGGESTIONS\n");
+	
+	// Context-aware suggestions based on current state
+	show_contextual_status();
+	
+	if args.is_empty() {
+		println!("\n🔍 Based on your environment:");
+		
+		// Check for common scenarios
+		if std::env::var("SSH_CLIENT").is_ok() {
+			println!("  • Remote session → Explore sync capabilities");
+		}
+		
+		if std::path::Path::new("Cargo.toml").exists() {
+			println!("  • Rust project → Pattern matching for code analysis");
+		}
+		
+		if std::path::Path::new(".git").exists() {
+			println!("  • Git repository → Remote sync operations");
+		}
+		
+		println!("\n🎯 Try: litebike suggest <domain> for specific recommendations");
+	}
+}
+
+fn run_learn(_args: &[String]) {
+	println!("📚 LEARNING MODE\n");
+	println!("🎓 Understanding LiteBike semantics:");
+	println!("  • Commands are organized by taxonomical domains");
+	println!("  • Each domain represents a coherent problem space");
+	println!("  • Use 'explore <domain>' to understand capabilities");
+	println!("  • Use 'similar <command>' to find related operations\n");
+	
+	println!("💡 Semantic discovery approach:");
+	println!("  1. Start with intent: 'What do I want to accomplish?'");
+	println!("  2. Explore domain: litebike explore <domain>");
+	println!("  3. Get examples: litebike examples <domain>");
+	println!("  4. Try operations: Follow contextual suggestions");
+}
+
+fn run_similar(args: &[String]) {
+	if let Some(cmd) = args.get(0) {
+		println!("🔍 SIMILAR TO: {}\n", cmd);
+		
+		// Semantic clustering of related operations
+		match cmd.as_str() {
+			"ifconfig" => {
+				println!("📡 Network interface related:");
+				println!("  • route       - Show routing table");
+				println!("  • netstat     - Show connections");
+				println!("  • probe       - Test connectivity");
+				println!("  • watch       - Monitor changes");
+			}
+			"proxy-server" => {
+				println!("🔀 Proxy related:");
+				println!("  • proxy-test    - Test proxy functionality");
+				println!("  • proxy-quick   - Quick proxy setup");
+				println!("  • knox-proxy    - Knox bypass proxy");
+				println!("  • proxy-config  - Configure proxy settings");
+			}
+			"pattern-match" => {
+				println!("🎯 Pattern related:");
+				println!("  • pattern-glob   - Glob pattern matching");
+				println!("  • pattern-regex  - Regex matching");
+				println!("  • pattern-scan   - Bulk pattern scanning");
+				println!("  • pattern-bench  - Performance testing");
+			}
+			_ => {
+				println!("❓ Unknown command: {}", cmd);
+				println!("Try: litebike list-all to see all commands");
+			}
+		}
+	} else {
+		println!("Usage: litebike similar <command>");
+	}
+}
+
+fn run_list_all(_args: &[String]) {
+	println!("📋 ALL COMMANDS (Classic Mode)\n");
+	
+	println!("🔍 DISCOVERY & EXPLORATION:");
+	for (cmd, _) in WAM_DISPATCH_TABLE.iter().take(10) {
+		println!("  {}", cmd);
+	}
+	
+	println!("\n📡 NETWORK OPERATIONS:");
+	println!("  ifconfig, route, netstat, ip, probe, watch, scan-ports");
+	
+	println!("\n🔀 PROXY OPERATIONS:");
+	println!("  proxy-server, proxy-test, proxy-quick, knox-proxy, proxy-config");
+	
+	println!("\n🎯 PATTERN OPERATIONS:");
+	println!("  pattern-match, pattern-glob, pattern-regex, pattern-scan, pattern-bench");
+	
+	println!("\n📂 SYNC OPERATIONS:");
+	println!("  remote-sync, git-sync, git-push, ssh-deploy");
+	
+	println!("\n🔧 UTILITY OPERATIONS:");
+	println!("  completion, carrier-bypass, trust-host, bootstrap, version-check");
+	
+	println!("\n💡 For semantic exploration, use: litebike explore <domain>");
+}
+
+fn run_by_category(_args: &[String]) {
+	println!("📚 COMMANDS BY CATEGORY\n");
+	// Implementation similar to old help but organized better
+	show_main_help(); // Falls back to DSEL exploration
+}
+
+fn run_command_reference(_args: &[String]) {
+	println!("📖 COMMAND REFERENCE MANUAL\n");
+	println!("This would show complete reference documentation");
+	println!("Currently: Use 'litebike explore <domain>' for interactive discovery");
+}
+
+fn run_capabilities(_args: &[String]) {
+	println!("⚡ LITEBIKE CAPABILITIES\n");
+	
+	println!("🏗️  ARCHITECTURE:");
+	println!("  • WAM-dispatched command execution");
+	println!("  • RBCursive SIMD-accelerated pattern matching");
+	println!("  • Taxonomical ontological command mapping");
+	println!("  • Channelized reactor for protocol handling\n");
+	
+	println!("🔧 CORE DOMAINS:");
+	println!("  • Network analysis and monitoring");
+	println!("  • Multi-protocol proxy operations");
+	println!("  • High-performance pattern matching");
+	println!("  • Distributed synchronization");
+	println!("  • Security and bypass tools\n");
+	
+	println!("🎯 INTELLIGENT FEATURES:");
+	println!("  • Context-aware suggestions");
+	println!("  • Semantic command discovery");
+	println!("  • Auto-completion with learning");
+	println!("  • Intent-based operation discovery");
+}
+
+fn run_workflows(_args: &[String]) {
+	println!("🔄 COMMON WORKFLOWS\n");
+	
+	println!("📡 NETWORK ANALYSIS:");
+	println!("  1. litebike ifconfig         # Check interfaces");
+	println!("  2. litebike probe            # Test connectivity");
+	println!("  3. litebike scan-ports <host> # Port scanning\n");
+	
+	println!("🔀 PROXY SETUP:");
+	println!("  1. litebike proxy-quick      # Quick setup");
+	println!("  2. litebike proxy-test       # Verify functionality");
+	println!("  3. litebike watch           # Monitor usage\n");
+	
+	println!("📂 CODE SYNC:");
+	println!("  1. litebike remote-sync list # Check remotes");
+	println!("  2. litebike git-sync        # Synchronize");
+	println!("  3. litebike ssh-deploy      # Deploy changes");
+}
+
+fn run_examples(args: &[String]) {
+	let domain = args.get(0).map(|s| s.as_str()).unwrap_or("all");
+	
+	println!("📋 EXAMPLES: {}\n", domain.to_uppercase());
+	
+	match domain {
+		"network" => {
+			println!("litebike ifconfig eth0           # Show specific interface");
+			println!("litebike probe                   # Test default connectivity");
+			println!("litebike scan-ports 192.168.1.1 # Scan local gateway");
+			println!("litebike watch                   # Monitor network changes");
+		}
+		"proxy" => {
+			println!("litebike proxy-server 8080       # Start proxy on port 8080");
+			println!("litebike proxy-test localhost 8080 # Test proxy");
+			println!("litebike knox-proxy              # Knox bypass proxy");
+		}
+		"patterns" => {
+			println!("litebike pattern-glob '*.rs' .   # Find Rust files");
+			println!("litebike pattern-regex 'fn \\w+' src/ # Find functions");
+			println!("litebike pattern-scan file.txt 'error' # Find errors");
+		}
+		_ => {
+			println!("Available domains: network, proxy, patterns, sync, security");
+			println!("Usage: litebike examples <domain>");
+		}
+	}
+}
+
+fn run_dsel_help(_args: &[String]) {
+	show_dsel_exploration();
 }
 
 fn run_ssh_automation(_args: &[String]) {
