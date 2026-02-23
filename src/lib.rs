@@ -1,27 +1,25 @@
-pub mod adapters;
-pub mod channel;
-pub mod quic;
-pub mod reactor;
-pub mod rbcursive;
-pub mod syscall_net;
-pub mod git_sync;
-pub mod tethering_bypass;
-pub mod knox_proxy;
-pub mod posix_sockets;
-pub mod host_trust;
-pub mod tcp_fingerprint;
-pub mod upnp_aggressive;
-pub mod config;
-pub mod types;
-pub mod gates;
-pub mod radios;
-pub mod raw_telnet;
-pub mod ssh_tools;
-pub mod tls_fingerprint;
-pub mod universal_listener;
-pub mod packet_fragment;
+//! LiteBike - Embodied agent gateway with intelligent routing
+//!
+//! Built on literbike (betanet productive codebase rehomed) with:
+//! - QUIC/h3 single UDP port
+//! - Gate-based protocol routing
+//! - CC-Cache integration for AI API spoofing
+//! - Radio-aware egress
 
-// Integrated proxy architecture combining all components
+// Re-export core from literbike (DRY)
+pub use literbike::{
+    quic,
+    rbcursive,
+    syscall_net,
+    gates as core_gates,
+    radios,
+    channel,
+    config,
+    types,
+};
+
+// LiteBike-specific extensions
+pub mod gates;
 pub mod integrated_proxy;
 
 // Re-export key integrated components for easy access
@@ -64,16 +62,5 @@ impl LiteBike {
 impl Default for LiteBike {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn smoke() {
-        // Simple smoke test to confirm crate builds and modules link
-        let _ = adapters::ssh::ssh_adapter_name();
     }
 }

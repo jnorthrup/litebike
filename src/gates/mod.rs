@@ -12,6 +12,8 @@ pub mod crypto_gate;
 pub mod htx_gate;
 pub mod knox_gate;
 pub mod proxy_gate;
+pub mod cccache_gate;
+pub mod cccache_gate;
 
 /// Enhanced gate trait with Knox awareness and connection handling
 #[async_trait]
@@ -80,6 +82,7 @@ pub struct LitebikeGateController {
     htx_gate: Arc<htx_gate::HTXGate>,
     knox_gate: Arc<knox_gate::KnoxGate>,
     proxy_gate: Arc<proxy_gate::ProxyGate>,
+    cccache_gate: Arc<cccache_gate::CCCacheGate>,
 }
 
 impl LitebikeGateController {
@@ -89,16 +92,17 @@ impl LitebikeGateController {
         let htx_gate = Arc::new(htx_gate::HTXGate::new());
         let knox_gate = Arc::new(knox_gate::KnoxGate::new());
         let proxy_gate = Arc::new(proxy_gate::ProxyGate::new());
+        let cccache_gate = Arc::new(cccache_gate::CCCacheGate::new());
         
         let mut gates: Vec<Arc<dyn Gate>> = vec![
-            knox_gate.clone() as Arc<dyn Gate>,        // Highest priority for Knox environments
-            proxy_gate.clone() as Arc<dyn Gate>,       // HTTP/SOCKS5 proxy handling
+            cccache_gate.clone() as Arc<dyn Gate>,
+            knox_gate.clone() as Arc<dyn Gate>,
+            proxy_gate.clone() as Arc<dyn Gate>,
             shadowsocks_gate.clone() as Arc<dyn Gate>,
             crypto_gate.clone() as Arc<dyn Gate>,
             htx_gate.clone() as Arc<dyn Gate>,
         ];
         
-        // Sort by priority (highest first)
         gates.sort_by(|a, b| b.priority().cmp(&a.priority()));
         
         Self {
@@ -108,6 +112,7 @@ impl LitebikeGateController {
             htx_gate,
             knox_gate,
             proxy_gate,
+            cccache_gate,
         }
     }
     
@@ -191,6 +196,24 @@ impl LitebikeGateController {
     pub fn disable_knox_mode(&self) {
         self.knox_gate.disable();
         println!("🔓 Knox mode disabled");
+    }
+    
+    /// Enable CC-Cache mode for AI API routing
+    pub fn enable_cccache_mode(&self) {
+        self.cccache_gate.enable();
+        println!("🤖 CC-Cache mode enabled for AI API routing");
+    }
+    
+    /// Disable CC-Cache mode
+    pub fn disable_cccache_mode(&self) {
+        self.cccache_gate.disable();
+        println!("📴 CC-Cache mode disabled");
+    }
+    
+    /// Configure CC-Cache backend
+    pub fn set_cccache_backend(&self, host: &str, port: u16) {
+        self.cccache_gate.set_backend(host, port);
+        println!("🔗 CC-Cache backend set to {}:{}", host, port);
     }
     
     /// Add HTX as a downstream consumer (legacy interface)
