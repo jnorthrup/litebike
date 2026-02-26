@@ -242,6 +242,31 @@ impl CCCacheGate {
 
         Ok(response_bytes)
     }
+
+    async fn process_connection(
+        &self,
+        data: &[u8],
+        stream: Option<TcpStream>,
+    ) -> Result<Vec<u8>, GateError> {
+        if !self.is_open(data).await {
+            return Err(GateError::ProtocolNotSupported(
+                "CC-Cache gate is closed or no AI API patterns detected".to_string(),
+            ));
+        }
+
+        let api_type = self.detect_api_type(data);
+        println!("🎯 CC-Cache detected API type: {:?}", api_type);
+
+        match api_type.as_deref() {
+            Some("status") => self.handle_status_request(data, stream).await,
+            Some("claude") | Some("openai") | Some("gemini") => {
+                self.forward_to_backend(data, stream).await
+            }
+            _ => Err(GateError::ProtocolNotSupported(
+                "Unknown AI API format".to_string(),
+            )),
+        }
+    }
 }
 
 #[async_trait]
@@ -265,37 +290,12 @@ impl Gate for CCCacheGate {
         }
     }
 
-    async fn process_connection(&self, data: &[u8], stream: Option<TcpStream>) -> Result<Vec<u8>, GateError> {
-        if !self.is_open(data).await {
-            return Err(GateError::ProtocolNotSupported("CC-Cache gate is closed or no AI API patterns detected".to_string()));
-        }
-
-        let api_type = self.detect_api_type(data);
-        println!("🎯 CC-Cache detected API type: {:?}", api_type);
-
-        match api_type.as_deref() {
-            Some("status") => self.handle_status_request(data, stream).await,
-            Some("claude") | Some("openai") | Some("gemini") => {
-                self.forward_to_backend(data, stream).await
-            }
-            _ => Err(GateError::ProtocolNotSupported("Unknown AI API format".to_string()))
-        }
-    }
-
     fn name(&self) -> &str {
         "cc-cache"
     }
 
-    fn children(&self) -> Vec<Arc<dyn Gate>> {
-        vec![]
-    }
-
     fn priority(&self) -> u8 {
         90 // High priority for AI API requests
-    }
-
-    fn can_handle_protocol(&self, protocol: &str) -> bool {
-        matches!(protocol, "claude" | "openai" | "gemini" | "anthropic" | "ai-api")
     }
 }
 

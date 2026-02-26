@@ -2,13 +2,13 @@
 // Integrates with existing Knox proxy functionality
 
 use super::{Gate, GateError};
-use crate::knox_proxy::KnoxProxyConfig;
-use crate::tethering_bypass::TetheringBypass;
 use async_trait::async_trait;
-use std::sync::Arc;
 use parking_lot::RwLock;
+use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use crate::knox_proxy::KnoxProxyConfig;
+use crate::tethering_bypass::TetheringBypass;
 
 pub struct KnoxGate {
     enabled: Arc<RwLock<bool>>,
@@ -86,15 +86,15 @@ impl KnoxGate {
     /// Detect carrier-specific traffic patterns
     fn detect_carrier_patterns(&self, data: &[u8]) -> bool {
         // Common carrier middleware patterns
-        let carrier_patterns = [
+        let carrier_patterns: &[&[u8]] = &[
             b"tether",
-            b"hotspot", 
+            b"hotspot",
             b"carrier",
             b"mobile",
             b"cellular",
         ];
         
-        for pattern in &carrier_patterns {
+        for pattern in carrier_patterns {
             if data.windows(pattern.len()).any(|w| w.eq_ignore_ascii_case(pattern)) {
                 return true;
             }
@@ -105,7 +105,7 @@ impl KnoxGate {
     
     /// Apply Knox-specific processing
     async fn process_knox_traffic(&self, data: &[u8], stream: Option<TcpStream>) -> Result<Vec<u8>, GateError> {
-        let config = self.config.read();
+        let config = self.config.read().clone();
         
         println!("🔒 Processing Knox traffic (bypass: {}, tethering: {})", 
             config.enable_knox_bypass, 
@@ -114,7 +114,7 @@ impl KnoxGate {
         
         // Apply TTL spoofing if tethering bypass is enabled
         if config.enable_tethering_bypass {
-            if let Some(ref bypass) = *self.tethering_bypass.read() {
+            if self.tethering_bypass.read().is_some() {
                 // TTL spoofing is applied at the network level
                 println!("📡 TTL spoofing active (TTL: {})", config.ttl_spoofing);
             }
@@ -149,6 +149,20 @@ impl KnoxGate {
         
         Ok(processed_data)
     }
+
+    async fn process_connection(
+        &self,
+        data: &[u8],
+        stream: Option<TcpStream>,
+    ) -> Result<Vec<u8>, GateError> {
+        if !self.is_open(data).await {
+            return Err(GateError::Knox(
+                "Knox gate is closed or no Knox patterns detected".to_string(),
+            ));
+        }
+
+        self.process_knox_traffic(data, stream).await
+    }
 }
 
 #[async_trait]
@@ -169,29 +183,12 @@ impl Gate for KnoxGate {
         }
     }
     
-    async fn process_connection(&self, data: &[u8], stream: Option<TcpStream>) -> Result<Vec<u8>, GateError> {
-        if !self.is_open(data).await {
-            return Err(GateError::Knox("Knox gate is closed or no Knox patterns detected".to_string()));
-        }
-        
-        self.process_knox_traffic(data, stream).await
-    }
-    
     fn name(&self) -> &str {
         "knox"
     }
     
-    fn children(&self) -> Vec<Arc<dyn Gate>> {
-        vec![]
-    }
-    
     fn priority(&self) -> u8 {
         90 // High priority for Knox environments
-    }
-    
-    fn can_handle_protocol(&self, protocol: &str) -> bool {
-        // Knox gate can handle most protocols in mobile environments
-        matches!(protocol, "http" | "https" | "tcp" | "knox" | "mobile" | "android")
     }
 }
 
