@@ -6,7 +6,6 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use tokio::net::TcpStream;
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
-use super::Gate;
 
 pub struct HTXGate {
     enabled: Arc<RwLock<bool>>,
@@ -17,75 +16,90 @@ pub struct HTXGate {
 impl HTXGate {
     pub fn new() -> Self {
         Self {
-            enabled: Arc::new(RwLock::new(true)),
+            enabled: Arc::new(RwLock::new(false)),
             endpoint: Arc::new(RwLock::new("127.0.0.1:443".to_string())),
             connected: Arc::new(RwLock::new(false)),
         }
     }
-
+    
     pub fn set_endpoint(&self, endpoint: String) {
         *self.endpoint.write() = endpoint;
-        *self.connected.write() = false;
+        *self.connected.write() = false; // Reset connection
     }
-
+    
     pub fn enable(&self) {
         *self.enabled.write() = true;
     }
-
+    
     pub fn disable(&self) {
         *self.enabled.write() = false;
         *self.connected.write() = false;
     }
-
+    
     async fn forward_to_htx(&self, data: &[u8]) -> Result<Vec<u8>, String> {
         let endpoint = self.endpoint.read().clone();
-
+        
+        // Connect to HTX server
         let mut stream = TcpStream::connect(&endpoint).await
             .map_err(|e| format!("Failed to connect to HTX at {}: {}", endpoint, e))?;
-
+        
+        // Send data to HTX
         stream.write_all(data).await
             .map_err(|e| format!("Failed to write to HTX: {}", e))?;
-
-        let mut buffer = vec![0u8; 4096];
-        let n = stream.read(&mut buffer).await
-            .map_err(|e| format!("Failed to read from HTX: {}", e))?;
-
-        Ok(buffer[..n].to_vec())
+        
+        // Read response
+        let mut response = Vec::new();
+        let mut buffer = [0u8; 4096];
+        
+        match stream.read(&mut buffer).await {
+            Ok(n) if n > 0 => {
+                response.extend_from_slice(&buffer[..n]);
+                Ok(response)
+            }
+            Ok(_) => Ok(vec![]),
+            Err(e) => Err(format!("Failed to read from HTX: {}", e)),
+        }
     }
-}
-
-impl Default for HTXGate {
-    fn default() -> Self {
-        Self::new()
+    
+    fn detect_htx(&self, data: &[u8]) -> bool {
+        // Check for HTX patterns
+        if data.len() < 8 {
+            return false;
+        }
+        
+        // Check for HTX magic bytes or access ticket
+        data.starts_with(b"HTX/") || 
+        data.starts_with(b"betanet/htx") ||
+        (data.len() >= 24 && data.len() <= 64) // Access ticket size
     }
 }
 
 #[async_trait]
-impl Gate for HTXGate {
+impl super::Gate for HTXGate {
     async fn is_open(&self, _data: &[u8]) -> bool {
         *self.enabled.read()
     }
 
     async fn process(&self, data: &[u8]) -> Result<Vec<u8>, String> {
-        if !*self.enabled.read() {
-            return Err("HTX gate is disabled".to_string());
+        if !self.is_open(data).await {
+            return Err("HTX gate is closed".to_string());
         }
-
+        
+        if !self.detect_htx(data) {
+            return Err("Not HTX protocol".to_string());
+        }
+        
+        println!("Forwarding through HTX gate to {}", self.endpoint.read());
+        
+        // Forward to actual HTX server
         self.forward_to_htx(data).await
     }
-
+    
     fn name(&self) -> &str {
         "htx"
     }
-}
-
-impl HTXGate {
-    fn detect_htx(&self, data: &[u8]) -> bool {
-        if data.len() < 8 {
-            return false;
-        }
-        data.starts_with(b"HTX/") ||
-        data.starts_with(b"betanet/htx") ||
-        (data.len() >= 24 && data.len() <= 64)
+    
+    fn children(&self) -> Vec<Arc<dyn super::Gate>> {
+        vec![]
     }
 }

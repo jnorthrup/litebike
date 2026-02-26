@@ -6,9 +6,6 @@ license = "AGPL-3.0"
 repository = "https://github.com/jnorthrup/litebike"
 
 [dependencies]
-# Core lib dependency (literbike = betanet productive codebase rehomed)
-literbike = { path = "../literbike" }
-
 # Core async runtime
 tokio = { version = "1", features = ["full"] }
 async-trait = "0.1"
@@ -32,6 +29,7 @@ parking_lot = "0.12"
 
 # Network
 nix = { version = "0.27", features = ["socket"] }
+libc = "0.2"
 socket2 = "0.6"
 rand = "0.8"
 

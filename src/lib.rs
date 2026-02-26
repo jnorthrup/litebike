@@ -1,46 +1,60 @@
-// LiteBike Agent System
-// Claude bot with web search and JSON capabilities
+//! LiteBike - Self-standing light proxy foundation
+//!
+//! litebike owns:
+//! - Port-8888 dynamic protocol sharing (special8888)
+//! - KnoxProxyConfig (proxy_config)
+//! - POSIX socket utilities (posix_sockets)
+//! - Gate-based protocol routing (gates)
+//! - Channel management (channel)
+//! - Integrated proxy server (integrated_proxy)
 
-pub mod model_hierarchy;
-pub mod mod;  // mod.rs
-pub mod web_tools;
+pub mod proxy_config;
+pub mod agent_8888;
+pub mod posix_sockets;
+pub mod channel;
+pub mod gates;
+pub mod integrated_proxy;
 
-pub use model_hierarchy::{ModelHierarchy, ModelNode, ProviderConfig};
-pub use mod::{AgentConfig, AgentModelConfig, AgentRuntime, GatewayConfig, SecurityConfig, ProviderConfigs, WebToolConfig, WebSearchProvider};
-pub use web_tools::{WebSearchRequest, WebSearchResult, JsonToolConfig, WebSearchProvider as WebToolProvider, WebTools};
+pub use proxy_config::KnoxProxyConfig;
+pub use agent_8888::{Special8888Listener, ProtocolDetection, DEFAULT_PORT};
+pub use integrated_proxy::{IntegratedProxyServer, IntegratedProxyConfig, IntegratedProxyStats};
+pub use channel::{ChannelManager, ChannelType};
+pub use gates::{LitebikeGateController, GateInfo};
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// LiteBike integrated proxy facade for simple usage
+pub struct LiteBike {
+    proxy_server: IntegratedProxyServer,
+}
 
-    #[test]
-    fn test_full_agent_system() {
-        use std::env;
+impl LiteBike {
+    /// Create new LiteBike instance with default configuration
+    pub fn new() -> Self {
+        let config = IntegratedProxyConfig::default();
+        Self {
+            proxy_server: IntegratedProxyServer::new(config),
+        }
+    }
 
-        // Set test environment variables
-        env::set_var("NVIDIA_API_KEY", "test-nvidia-key");
-        env::set_var("GROQ_API_KEY", "test-groq-key");
-        env::set_var("OPENROUTER_API_KEY", "test-openrouter-key");
-        env::set_var("BRAVE_SEARCH_API_KEY", "test-brave-key");
+    /// Create new LiteBike instance with custom configuration
+    pub fn with_config(config: IntegratedProxyConfig) -> Self {
+        Self {
+            proxy_server: IntegratedProxyServer::new(config),
+        }
+    }
 
-        let hierarchy = ModelHierarchy::new();
-        let runtime = AgentRuntime::new_with_defaults("a2f43b129fff1fce1c8a243a4869518c09823b1e73bfa66b");
+    /// Start the LiteBike proxy server
+    pub async fn start(self) -> Result<(), integrated_proxy::IntegratedProxyError> {
+        self.proxy_server.start().await
+    }
 
-        // Test model selection
-        let coding_model = hierarchy.select_model("coding");
-        assert!(coding_model.is_some());
+    /// Get proxy server statistics
+    pub async fn stats(&self) -> IntegratedProxyStats {
+        self.proxy_server.get_stats().await
+    }
+}
 
-        // Test agent config generation
-        let config = runtime.to_openclaw_config();
-        assert!(config["agents"].is_object());
-        assert!(config["gateway"].is_object());
-        assert!(config["webTools"].is_object());
-
-        // Test web tools
-        let web_tools = WebTools::new();
-        assert!(!web_tools.providers.is_empty());
-
-        // Verify token matches
-        assert_eq!(config["gateway"]["token"], "a2f43b129fff1fce1c8a243a4869518c09823b1e73bfa66b");
+impl Default for LiteBike {
+    fn default() -> Self {
+        Self::new()
     }
 }

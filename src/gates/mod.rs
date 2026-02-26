@@ -1,9 +1,11 @@
-// LiteBike Gate System
-// Simplified gate controller for protocol routing
+// LITERBIKE Gate System (AGPL Licensed) 
+// Enhanced hierarchical gating for protocols, crypto, and Knox integration
+// Integrated with ../literbike gate patterns
 
 use std::sync::Arc;
 use parking_lot::RwLock;
 use async_trait::async_trait;
+use tokio::net::TcpStream;
 
 pub mod shadowsocks_gate;
 pub mod crypto_gate;
@@ -12,32 +14,50 @@ pub mod knox_gate;
 pub mod proxy_gate;
 pub mod cccache_gate;
 
-/// Gate trait for protocol handling
+/// Enhanced gate trait with Knox awareness and connection handling
 #[async_trait]
 pub trait Gate: Send + Sync {
-    /// Check if gate allows passage
+    /// Check if gate allows passage for this data
     async fn is_open(&self, data: &[u8]) -> bool;
-
-    /// Process data through gate
+    
+    /// Process data through gate (legacy interface)
     async fn process(&self, data: &[u8]) -> Result<Vec<u8>, String>;
-
+    
+    /// Enhanced process with connection handling
+    async fn process_connection(&self, data: &[u8], _stream: Option<TcpStream>) -> Result<Vec<u8>, GateError> {
+        // Default implementation delegates to legacy process method
+        self.process(data).await.map_err(|e| GateError::ProcessingFailed(e))
+    }
+    
     /// Gate identifier
     fn name(&self) -> &str;
-
+    
+    /// Child gates (default: none)
+    fn children(&self) -> Vec<Arc<dyn Gate>> {
+        vec![]
+    }
+    
     /// Gate priority (higher = checked first)
     fn priority(&self) -> u8 {
-        50
+        50 // Default priority
+    }
+    
+    /// Check if gate can handle this protocol
+    fn can_handle_protocol(&self, protocol: &str) -> bool {
+        // Default implementation checks common protocols
+        matches!(protocol, "http" | "https" | "tcp")
     }
 }
 
-/// Gate processing errors
+/// Gate processing errors with Knox-specific error types
 #[derive(Debug, Clone)]
 pub enum GateError {
     ProtocolNotSupported(String),
     ProcessingFailed(String),
     ConnectionFailed(String),
-    Knox(String),
     Timeout,
+    Knox(String),
+    Legacy(String),
 }
 
 impl std::fmt::Display for GateError {
@@ -46,63 +66,184 @@ impl std::fmt::Display for GateError {
             GateError::ProtocolNotSupported(proto) => write!(f, "Protocol not supported: {}", proto),
             GateError::ProcessingFailed(reason) => write!(f, "Processing failed: {}", reason),
             GateError::ConnectionFailed(reason) => write!(f, "Connection failed: {}", reason),
-            GateError::Knox(reason) => write!(f, "Knox error: {}", reason),
             GateError::Timeout => write!(f, "Operation timed out"),
+            GateError::Knox(reason) => write!(f, "Knox gate error: {}", reason),
+            GateError::Legacy(reason) => write!(f, "Legacy error: {}", reason),
         }
     }
 }
 
 impl std::error::Error for GateError {}
 
-/// Gate information for monitoring
-#[derive(Debug, Clone)]
-pub struct GateInfo {
-    pub name: String,
-    pub enabled: bool,
-    pub requests_handled: u64,
-}
-
-/// LiteBike gate controller
+/// Enhanced LITEBIKE master gate controller with Knox integration
 pub struct LitebikeGateController {
     gates: Arc<RwLock<Vec<Arc<dyn Gate>>>>,
-    enabled: Arc<RwLock<bool>>,
+    shadowsocks_gate: Arc<shadowsocks_gate::ShadowsocksGate>,
+    crypto_gate: Arc<crypto_gate::CryptoGate>,
+    htx_gate: Arc<htx_gate::HTXGate>,
+    knox_gate: Arc<knox_gate::KnoxGate>,
+    proxy_gate: Arc<proxy_gate::ProxyGate>,
+    cccache_gate: Arc<cccache_gate::CCCacheGate>,
 }
 
 impl LitebikeGateController {
     pub fn new() -> Self {
+        let shadowsocks_gate = Arc::new(shadowsocks_gate::ShadowsocksGate::new());
+        let crypto_gate = Arc::new(crypto_gate::CryptoGate::new());
+        let htx_gate = Arc::new(htx_gate::HTXGate::new());
+        let knox_gate = Arc::new(knox_gate::KnoxGate::new());
+        let proxy_gate = Arc::new(proxy_gate::ProxyGate::new());
+        let cccache_gate = Arc::new(cccache_gate::CCCacheGate::new());
+        
+        let mut gates: Vec<Arc<dyn Gate>> = vec![
+            cccache_gate.clone() as Arc<dyn Gate>,
+            knox_gate.clone() as Arc<dyn Gate>,
+            proxy_gate.clone() as Arc<dyn Gate>,
+            shadowsocks_gate.clone() as Arc<dyn Gate>,
+            crypto_gate.clone() as Arc<dyn Gate>,
+            htx_gate.clone() as Arc<dyn Gate>,
+        ];
+        
+        gates.sort_by(|a, b| b.priority().cmp(&a.priority()));
+        
         Self {
-            gates: Arc::new(RwLock::new(Vec::new())),
-            enabled: Arc::new(RwLock::new(true)),
+            gates: Arc::new(RwLock::new(gates)),
+            shadowsocks_gate,
+            crypto_gate,
+            htx_gate,
+            knox_gate,
+            proxy_gate,
+            cccache_gate,
         }
     }
-
-    /// Register a gate
-    pub fn register_gate(&self, gate: Arc<dyn Gate>) {
-        self.gates.write().push(gate);
+    
+    /// Enhanced routing with connection handling (legacy interface)
+    pub async fn route(&self, data: &[u8]) -> Result<Vec<u8>, String> {
+        match self.route_with_connection(data, None).await {
+            Ok(result) => Ok(result),
+            Err(e) => Err(e.to_string()),
+        }
     }
+    
+    /// Route data through appropriate gate with connection support
+    pub async fn route_with_connection(&self, data: &[u8], stream: Option<TcpStream>) -> Result<Vec<u8>, GateError> {
+        // Collect clones before any .await to avoid holding the parking_lot guard across awaits
+        let gates: Vec<Arc<dyn Gate>> = self.gates.read().iter().cloned().collect();
+        let mut stream = stream;
 
-    /// Enable Knox mode
+        for gate in gates.iter() {
+            if gate.is_open(data).await {
+                println!("🚪 Routing through gate: {} (priority: {})", gate.name(), gate.priority());
+
+                // Give the stream to the first open gate; subsequent gates get None
+                let gate_stream = stream.take();
+                match gate.process_connection(data, gate_stream).await {
+                    Ok(result) => return Ok(result),
+                    Err(GateError::ProcessingFailed(_)) => {
+                        // Fall back to legacy processing
+                        if let Ok(result) = gate.process(data).await {
+                            return Ok(result);
+                        }
+                    }
+                    Err(e) => {
+                        println!("⚠ Gate {} failed: {}", gate.name(), e);
+                        continue;
+                    }
+                }
+            }
+        }
+
+        Err(GateError::ProtocolNotSupported("No gate could process data".to_string()))
+    }
+    
+    /// Route by specific protocol
+    pub async fn route_by_protocol(&self, protocol: &str, data: &[u8], stream: Option<TcpStream>) -> Result<Vec<u8>, GateError> {
+        // Collect clones before any .await to avoid holding the parking_lot guard across awaits
+        let gates: Vec<Arc<dyn Gate>> = self.gates.read().iter().cloned().collect();
+        let mut stream = stream;
+
+        for gate in gates.iter() {
+            if gate.can_handle_protocol(protocol) && gate.is_open(data).await {
+                println!("🎯 Protocol-specific routing: {} -> {}", protocol, gate.name());
+                return gate.process_connection(data, stream.take()).await;
+            }
+        }
+        
+        Err(GateError::ProtocolNotSupported(format!("No gate for protocol: {}", protocol)))
+    }
+    
+    /// List all gates with their status
+    pub async fn list_gates(&self) -> Vec<GateInfo> {
+        let gates: Vec<Arc<dyn Gate>> = self.gates.read().iter().cloned().collect();
+        let mut gate_info = Vec::new();
+
+        for gate in gates.iter() {
+            let test_data = b"test";
+            let is_open = gate.is_open(test_data).await;
+            
+            gate_info.push(GateInfo {
+                name: gate.name().to_string(),
+                priority: gate.priority(),
+                is_open,
+                children_count: gate.children().len(),
+            });
+        }
+        
+        gate_info
+    }
+    
+    /// Enable Knox mode for adverse network conditions
     pub fn enable_knox_mode(&self) {
-        *self.enabled.write() = true;
+        self.knox_gate.enable();
+        println!("🔒 Knox mode enabled for adverse network conditions");
     }
+    
+    /// Disable Knox mode  
+    pub fn disable_knox_mode(&self) {
+        self.knox_gate.disable();
+        println!("🔓 Knox mode disabled");
+    }
+    
+    /// Enable CC-Cache mode for AI API routing
+    pub fn enable_cccache_mode(&self) {
+        self.cccache_gate.enable();
+        println!("🤖 CC-Cache mode enabled for AI API routing");
+    }
+    
+    /// Disable CC-Cache mode
+    pub fn disable_cccache_mode(&self) {
+        self.cccache_gate.disable();
+        println!("📴 CC-Cache mode disabled");
+    }
+    
+    /// Configure CC-Cache backend
+    pub fn set_cccache_backend(&self, host: &str, port: u16) {
+        self.cccache_gate.set_backend(host, port);
+        println!("🔗 CC-Cache backend set to {}:{}", host, port);
+    }
+    
+    /// Add HTX as a downstream consumer (legacy interface)
+    pub fn connect_htx_downstream(&self, htx_endpoint: String) {
+        self.htx_gate.set_endpoint(htx_endpoint);
+    }
+    
+    /// Add custom gate
+    pub fn add_gate(&self, gate: Arc<dyn Gate>) {
+        let mut gates = self.gates.write();
+        gates.push(gate);
+        
+        // Re-sort by priority
+        gates.sort_by(|a, b| b.priority().cmp(&a.priority()));
+    }
+}
 
-    /// Get all registered gates
-    pub fn get_gates(&self) -> Vec<GateInfo> {
-        self.gates
-            .read()
-            .iter()
-            .map(|g| GateInfo {
-                name: g.name().to_string(),
-                enabled: true,
-                requests_handled: 0,
-            })
-            .collect()
-    }
-
-    /// Check if controller is enabled
-    pub fn is_enabled(&self) -> bool {
-        *self.enabled.read()
-    }
+/// Gate information for status reporting
+#[derive(Debug, Clone)]
+pub struct GateInfo {
+    pub name: String,
+    pub priority: u8,
+    pub is_open: bool,
+    pub children_count: usize,
 }
 
 impl Default for LitebikeGateController {
