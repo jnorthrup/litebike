@@ -1,0 +1,8 @@
+{
+  "track_id": "litebike-modelmux-superpath_20260225",
+  "type": "program",
+  "status": "in_progress",
+  "created_at": "2026-02-25T00:00:00Z",
+  "updated_at": "2026-02-26T00:27:04Z",
+  "description": "Retire cc-switch/betanet into litebike+literbike as a Rust DSEL-first modelmux superpath, with cc-switch parity defined around its .env-driven execution facade plus shared taxonomy/facade matrices, v1/LangGraph support, and keymux/keyvault-enforced routing."
+}

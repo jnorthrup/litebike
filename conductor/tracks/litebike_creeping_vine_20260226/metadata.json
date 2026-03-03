@@ -1,0 +1,8 @@
+{
+  "track_id": "litebike_creeping_vine_20260226",
+  "type": "transport",
+  "status": "new",
+  "created_at": "2026-02-26T15:20:00Z",
+  "updated_at": "2026-02-26T15:20:00Z",
+  "description": "Implement self-stacking SSH tunnels and private UPnP services for agent communication (Creeping Vine)."
+}

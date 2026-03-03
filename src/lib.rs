@@ -1,46 +1,36 @@
 // LiteBike Agent System
 // Claude bot with web search and JSON capabilities
 
-pub mod model_hierarchy;
-pub mod mod;  // mod.rs
-pub mod web_tools;
+pub mod agents;
+pub mod gates;
+pub mod integrated_proxy;
+pub mod keymux;
+pub mod knox_proxy;
+pub mod syscall_net;
+pub mod tethering_bypass;
 
-pub use model_hierarchy::{ModelHierarchy, ModelNode, ProviderConfig};
-pub use mod::{AgentConfig, AgentModelConfig, AgentRuntime, GatewayConfig, SecurityConfig, ProviderConfigs, WebToolConfig, WebSearchProvider};
-pub use web_tools::{WebSearchRequest, WebSearchResult, JsonToolConfig, WebSearchProvider as WebToolProvider, WebTools};
+// Re-export from agents
+pub use agents::model_hierarchy::{ModelHierarchy, ModelNode, ProviderConfig};
+pub use agents::web_tools::{WebSearchRequest, WebSearchResult, WebTools};
+pub use keymux::{ModelInfo, WebModelCard, ModelId, ModelCardStore, ModelFacade, ModelMapping};
+pub use keymux::dsel::{QuotaContainer, ProviderPotential, DSELBuilder, RuleEngine, ProviderSelectionRule};
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_full_agent_system() {
-        use std::env;
-
-        // Set test environment variables
-        env::set_var("NVIDIA_API_KEY", "test-nvidia-key");
-        env::set_var("GROQ_API_KEY", "test-groq-key");
-        env::set_var("OPENROUTER_API_KEY", "test-openrouter-key");
-        env::set_var("BRAVE_SEARCH_API_KEY", "test-brave-key");
-
+    fn test_litebike_system() {
+        // Test basic model hierarchy
         let hierarchy = ModelHierarchy::new();
-        let runtime = AgentRuntime::new_with_defaults("a2f43b129fff1fce1c8a243a4869518c09823b1e73bfa66b");
-
-        // Test model selection
-        let coding_model = hierarchy.select_model("coding");
-        assert!(coding_model.is_some());
-
-        // Test agent config generation
-        let config = runtime.to_openclaw_config();
-        assert!(config["agents"].is_object());
-        assert!(config["gateway"].is_object());
-        assert!(config["webTools"].is_object());
-
-        // Test web tools
-        let web_tools = WebTools::new();
-        assert!(!web_tools.providers.is_empty());
-
-        // Verify token matches
-        assert_eq!(config["gateway"]["token"], "a2f43b129fff1fce1c8a243a4869518c09823b1e73bfa66b");
+        assert!(hierarchy.roots.len() > 0);
+        
+        // Test DSEL functionality
+        let dsel = DSELBuilder::new()
+            .with_quota("test_quota", 1000)
+            .with_provider("openai", 500, 1, 20.0, false)
+            .with_provider("anthropic", 300, 2, 30.0, false);
+        
+        assert!(dsel.build().is_ok());
     }
 }

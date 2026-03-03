@@ -1,0 +1,375 @@
+//! Token Ledger Manager for Provider API Tracking
+//!
+//! Tracks token usage for specific providers (kilo code, opencode, openrouter, nvidia)
+//! with vague quota estimation and API checks.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+use chrono::{DateTime, Utc};
+
+use super::dsel::{ProviderTokenLedger, ProviderApiStatus, VagueQuota, QuotaSource, KiloCodeConfig, OpenCodeConfig, OpenRouterConfig, NvidiaConfig};
+
+/// Manager for tracking token usage across providers
+pub struct TokenLedgerManager {
+    ledgers: HashMap<String, ProviderTokenLedger>,
+    provider_configs: ProviderConfigs,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderConfigs {
+    pub kilo_code: Option<KiloCodeConfig>,
+    pub opencode: Option<OpenCodeConfig>,
+    pub openrouter: Option<OpenRouterConfig>,
+    pub nvidia: Option<NvidiaConfig>,
+}
+
+impl TokenLedgerManager {
+    pub fn new() -> Self {
+        Self {
+            ledgers: HashMap::new(),
+            provider_configs: ProviderConfigs {
+                kilo_code: None,
+                opencode: None,
+                openrouter: None,
+                nvidia: None,
+            },
+        }
+    }
+
+    /// Initialize provider configurations
+    pub fn initialize_providers(&mut self, api_keys: HashMap<String, String>) {
+        // Kilo Code Configuration
+        if let Some(api_key) = api_keys.get("kilo_code") {
+            let config = KiloCodeConfig {
+                api_key: Some(api_key.clone()),
+                base_url: "https://api.kilocode.ai".to_string(),
+                estimated_daily_limit: 1_000_000, // 1M tokens per day
+                api_check_interval: 3600, // Check every hour
+                last_api_check: 0,
+                current_ledger: ProviderTokenLedger {
+                    provider_name: "kilo_code".to_string(),
+                    total_tokens_used: 0,
+                    tokens_used_today: 0,
+                    tokens_used_this_hour: 0,
+                    last_api_check: None,
+                    api_status: ProviderApiStatus::Unknown,
+                    vague_quota_remaining: Some(VagueQuota {
+                        estimated_remaining: 1_000_000,
+                        confidence: 0.7,
+                        last_updated: Self::current_timestamp(),
+                        source: QuotaSource::ManualConfiguration,
+                    }),
+                },
+            };
+            self.provider_configs.kilo_code = Some(config);
+        }
+
+        // OpenCode Configuration
+        if let Some(api_key) = api_keys.get("opencode") {
+            let config = OpenCodeConfig {
+                api_key: Some(api_key.clone()),
+                base_url: "https://api.opencode.ai".to_string(),
+                estimated_daily_limit: 500_000,
+                api_check_interval: 3600,
+                last_api_check: 0,
+                current_ledger: ProviderTokenLedger {
+                    provider_name: "opencode".to_string(),
+                    total_tokens_used: 0,
+                    tokens_used_today: 0,
+                    tokens_used_this_hour: 0,
+                    last_api_check: None,
+                    api_status: ProviderApiStatus::Unknown,
+                    vague_quota_remaining: Some(VagueQuota {
+                        estimated_remaining: 500_000,
+                        confidence: 0.6,
+                        last_updated: Self::current_timestamp(),
+                        source: QuotaSource::ManualConfiguration,
+                    }),
+                },
+            };
+            self.provider_configs.opencode = Some(config);
+        }
+
+        // OpenRouter Configuration
+        if let Some(api_key) = api_keys.get("openrouter") {
+            let config = OpenRouterConfig {
+                api_key: Some(api_key.clone()),
+                base_url: "https://openrouter.ai/api/v1".to_string(),
+                estimated_daily_limit: 2_000_000, // OpenRouter typically has higher limits
+                api_check_interval: 1800, // Check every 30 minutes
+                last_api_check: 0,
+                current_ledger: ProviderTokenLedger {
+                    provider_name: "openrouter".to_string(),
+                    total_tokens_used: 0,
+                    tokens_used_today: 0,
+                    tokens_used_this_hour: 0,
+                    last_api_check: None,
+                    api_status: ProviderApiStatus::Unknown,
+                    vague_quota_remaining: Some(VagueQuota {
+                        estimated_remaining: 2_000_000,
+                        confidence: 0.8,
+                        last_updated: Self::current_timestamp(),
+                        source: QuotaSource::ManualConfiguration,
+                    }),
+                },
+            };
+            self.provider_configs.openrouter = Some(config);
+        }
+
+        // NVIDIA Configuration
+        if let Some(api_key) = api_keys.get("nvidia") {
+            let config = NvidiaConfig {
+                api_key: Some(api_key.clone()),
+                base_url: "https://api.nvidia.com/v1".to_string(),
+                estimated_daily_limit: 3_000_000, // NVIDIA typically has generous quotas
+                api_check_interval: 7200, // Check every 2 hours
+                last_api_check: 0,
+                current_ledger: ProviderTokenLedger {
+                    provider_name: "nvidia".to_string(),
+                    total_tokens_used: 0,
+                    tokens_used_today: 0,
+                    tokens_used_this_hour: 0,
+                    last_api_check: None,
+                    api_status: ProviderApiStatus::Unknown,
+                    vague_quota_remaining: Some(VagueQuota {
+                        estimated_remaining: 3_000_000,
+                        confidence: 0.9,
+                        last_updated: Self::current_timestamp(),
+                        source: QuotaSource::ManualConfiguration,
+                    }),
+                },
+            };
+            self.provider_configs.nvidia = Some(config);
+        }
+    }
+
+    /// Track token usage for a provider
+    pub fn track_usage(&mut self, provider: &str, tokens: u64) -> Result<(), String> {
+        let ledger = self.ledgers.entry(provider.to_string()).or_insert_with(|| {
+            ProviderTokenLedger {
+                provider_name: provider.to_string(),
+                total_tokens_used: 0,
+                tokens_used_today: 0,
+                tokens_used_this_hour: 0,
+                last_api_check: None,
+                api_status: ProviderApiStatus::Unknown,
+                vague_quota_remaining: None,
+            }
+        });
+
+        ledger.total_tokens_used += tokens;
+        ledger.tokens_used_today += tokens;
+        ledger.tokens_used_this_hour += tokens;
+
+        // Update vague quota estimation
+        if let Some(ref mut vague_quota) = ledger.vague_quota_remaining {
+            if tokens <= vague_quota.estimated_remaining {
+                vague_quota.estimated_remaining -= tokens;
+                vague_quota.confidence = vague_quota.confidence * 0.99; // Slight decrease in confidence
+                vague_quota.last_updated = Self::current_timestamp();
+            } else {
+                // Quota exhausted
+                vague_quota.estimated_remaining = 0;
+                vague_quota.confidence = 0.0;
+                vague_quota.last_updated = Self::current_timestamp();
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Perform API check for provider quota
+    pub async fn perform_api_check(&mut self, provider: &str) -> Result<ProviderApiStatus, String> {
+        let current_time = Self::current_timestamp();
+        
+        match provider {
+            "kilo_code" => {
+                if let Some(config) = &self.provider_configs.kilo_code {
+                    if let Some(api_key) = &config.api_key {
+                        // Simulate API check (in real implementation, make HTTP request)
+                        let status = self.check_kilo_code_api(api_key).await?;
+                        
+                        // Update ledger
+                        if let Some(ledger) = self.ledgers.get_mut(provider) {
+                            ledger.last_api_check = Some(current_time);
+                            ledger.api_status = status.clone();
+                            
+                            // Update vague quota from API response
+                            let estimated_quota = self.estimate_quota_from_api(provider, &status);
+                            ledger.vague_quota_remaining = Some(VagueQuota {
+                                estimated_remaining: estimated_quota,
+                                confidence: 0.8,
+                                last_updated: current_time,
+                                source: QuotaSource::ApiDirect,
+                            });
+                        }
+                        
+                        return Ok(status);
+                    }
+                }
+            }
+            "opencode" => {
+                if let Some(config) = &self.provider_configs.opencode {
+                    if let Some(api_key) = &config.api_key {
+                        let status = self.check_opencode_api(api_key).await?;
+                        // Similar update logic
+                    }
+                }
+            }
+            "openrouter" => {
+                if let Some(config) = &self.provider_configs.openrouter {
+                    if let Some(api_key) = &config.api_key {
+                        let status = self.check_openrouter_api(api_key).await?;
+                        // Similar update logic
+                    }
+                }
+            }
+            "nvidia" => {
+                if let Some(config) = &self.provider_configs.nvidia {
+                    if let Some(api_key) = &config.api_key {
+                        let status = self.check_nvidia_api(api_key).await?;
+                        // Similar update logic
+                    }
+                }
+            }
+            _ => {
+                return Err(format!("Unknown provider: {}", provider));
+            }
+        }
+
+        Ok(ProviderApiStatus::Unknown)
+    }
+
+    /// Check Kilo Code API
+    async fn check_kilo_code_api(&self, api_key: &str) -> Result<ProviderApiStatus, String> {
+        // In real implementation, make HTTP request to Kilo Code API
+        // For now, simulate based on usage patterns
+        if let Some(ledger) = self.ledgers.get("kilo_code") {
+            if ledger.tokens_used_today > 1_000_000 {
+                return Ok(ProviderApiStatus::RateLimited);
+            }
+        }
+        Ok(ProviderApiStatus::Healthy)
+    }
+
+    /// Check OpenCode API
+    async fn check_opencode_api(&self, api_key: &str) -> Result<ProviderApiStatus, String> {
+        // Simulate OpenCode API check
+        if let Some(ledger) = self.ledgers.get("opencode") {
+            if ledger.tokens_used_today > 500_000 {
+                return Ok(ProviderApiStatus::RateLimited);
+            }
+        }
+        Ok(ProviderApiStatus::Healthy)
+    }
+
+    /// Check OpenRouter API
+    async fn check_openrouter_api(&self, api_key: &str) -> Result<ProviderApiStatus, String> {
+        // Simulate OpenRouter API check
+        if let Some(ledger) = self.ledgers.get("openrouter") {
+            if ledger.tokens_used_today > 2_000_000 {
+                return Ok(ProviderApiStatus::RateLimited);
+            }
+        }
+        Ok(ProviderApiStatus::Healthy)
+    }
+
+    /// Check NVIDIA API
+    async fn check_nvidia_api(&self, api_key: &str) -> Result<ProviderApiStatus, String> {
+        // Simulate NVIDIA API check
+        if let Some(ledger) = self.ledgers.get("nvidia") {
+            if ledger.tokens_used_today > 3_000_000 {
+                return Ok(ProviderApiStatus::RateLimited);
+            }
+        }
+        Ok(ProviderApiStatus::Healthy)
+    }
+
+    /// Estimate quota from API response
+    fn estimate_quota_from_api(&self, provider: &str, status: &ProviderApiStatus) -> u64 {
+        match status {
+            ProviderApiStatus::Healthy => {
+                // Estimate remaining quota based on provider limits
+                match provider {
+                    "kilo_code" => 1_000_000,
+                    "opencode" => 500_000,
+                    "openrouter" => 2_000_000,
+                    "nvidia" => 3_000_000,
+                    _ => 0,
+                }
+            }
+            ProviderApiStatus::Degraded => {
+                // Reduced quota estimation
+                match provider {
+                    "kilo_code" => 500_000,
+                    "opencode" => 250_000,
+                    "openrouter" => 1_000_000,
+                    "nvidia" => 1_500_000,
+                    _ => 0,
+                }
+            }
+            ProviderApiStatus::RateLimited => 0,
+            ProviderApiStatus::AuthenticationFailed => 0,
+            ProviderApiStatus::Unknown => 0,
+        }
+    }
+
+    /// Get current token ledger for provider
+    pub fn get_ledger(&self, provider: &str) -> Option<&ProviderTokenLedger> {
+        self.ledgers.get(provider)
+    }
+
+    /// Get all ledgers
+    pub fn get_all_ledgers(&self) -> &HashMap<String, ProviderTokenLedger> {
+        &self.ledgers
+    }
+
+    /// Check if provider has sufficient quota
+    pub fn has_sufficient_quota(&self, provider: &str, tokens_needed: u64) -> bool {
+        if let Some(ledger) = self.ledgers.get(provider) {
+            if let Some(vague_quota) = &ledger.vague_quota_remaining {
+                return vague_quota.estimated_remaining >= tokens_needed;
+            }
+        }
+        false
+    }
+
+    /// Reset hourly usage (call this hourly)
+    pub fn reset_hourly_usage(&mut self) {
+        for ledger in self.ledgers.values_mut() {
+            ledger.tokens_used_this_hour = 0;
+        }
+    }
+
+    /// Reset daily usage (call this daily)
+    pub fn reset_daily_usage(&mut self) {
+        for ledger in self.ledgers.values_mut() {
+            ledger.tokens_used_today = 0;
+        }
+    }
+
+    /// Get provider status summary
+    pub fn get_status_summary(&self) -> HashMap<String, (ProviderApiStatus, u64, u64)> {
+        let mut summary = HashMap::new();
+        
+        for (provider, ledger) in &self.ledgers {
+            let status = ledger.api_status.clone();
+            let used = ledger.tokens_used_today;
+            let remaining = ledger.vague_quota_remaining.as_ref()
+                .map(|q| q.estimated_remaining)
+                .unwrap_or(0);
+            
+            summary.insert(provider.clone(), (status, used, remaining));
+        }
+        
+        summary
+    }
+
+    fn current_timestamp() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+    }
+}
