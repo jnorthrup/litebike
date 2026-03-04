@@ -1,0 +1,8 @@
+{
+  "track_id": "quota-error-codes-20260304",
+  "title": "Quota Countdown Error Codes",
+  "created": "2026-03-04",
+  "goal": "Find error codes that contain quota countdown information (remaining tokens, requests, reset times)",
+  "status": "investigating",
+  "related": ["ollama-emulator-copilot-20260304"]
+}

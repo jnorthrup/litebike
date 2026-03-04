@@ -9,6 +9,9 @@
 - [x] CLI parser hardening: add `modelmux_mvp_lifecycle` parser test for missing `--agent-name` value (`confidence=100`, `discovery=none`)
 - [x] CLI parser hardening: add `modelmux_mvp_lifecycle` parser test for missing `--env-file` value (`confidence=100`, `discovery=none`)
 - [x] CLI parser hardening: add `modelmux_mvp_lifecycle` parser test for missing `--probe` value (`confidence=100`, `discovery=none`)
+- [x] CLI parser hardening: add `modelmux_mvp_lifecycle` parser test for missing `--env` value (`confidence=100`, `discovery=none`)
+- [ ] CLI parser hardening: add `modelmux_mvp_lifecycle` parser test for unknown flag rejection (`confidence=100`, `discovery=none`)
+- [ ] CLI parser hardening: add `modelmux_mvp_lifecycle` parser test for unexpected second positional argument (`confidence=100`, `discovery=none`)
 
 ## Main Todo Recap (Conductor Focus)
 
@@ -231,3 +234,9 @@ Validation
   - marked seventh `100% Slices (Zero-Discovery)` parser-hardening stub complete
   - `cargo test --quiet --bin modelmux_mvp_lifecycle` passed (`12` CLI parser tests)
   - `cargo check --quiet --bin modelmux_mvp_lifecycle` passed
+- 2026-03-03: VM CLI parser hardening for missing `--env` value:
+  - added CLI parser test coverage asserting missing value after `--env`
+  - marked eighth `100% Slices (Zero-Discovery)` parser-hardening stub complete
+  - validation currently blocked by pre-existing crate compile errors outside this CLI slice:
+    - `src/quic/quic_server.rs` missing `QuicServer::read_varint` (`E0599`) with default features
+    - `src/rbcursive/tunnel_config.rs`/`src/rbcursive/patterns.rs` feature-gating/import issues (`E0432`) with `--no-default-features`
