@@ -1,0 +1,16 @@
+{
+  "track_id": "nway-api-conversion-20260304",
+  "title": "N-Way API Conversion Layer",
+  "created": "2026-03-04",
+  "goal": "Unified API translation between all major AI providers",
+  "status": "investigating",
+  "related": ["ollama-emulator-copilot-20260304", "quota-error-codes-20260304"],
+  "providers": [
+    "gemini",
+    "codex",
+    "anthropic",
+    "openai",
+    "deepseek-r1",
+    "websearch"
+  ]
+}
