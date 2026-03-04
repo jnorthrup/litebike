@@ -148,3 +148,58 @@ No providers return standard quota headers. Must:
 | DeepSeek | Unknown | Unknown | None |
 | NVIDIA | Unknown | Unknown | None |
 | xAI | Unknown | Unknown | None |
+
+---
+
+## Implementation: Quota Tracking (2026-03-04)
+
+**Implemented in ollama_emulator:**
+
+### Endpoints
+
+```bash
+GET /health
+{
+  "status": "ready",
+  "providers": 12,
+  "total_tokens": 0,
+  "total_cost_usd": 0.0
+}
+
+GET /quota
+{
+  "object": "quota",
+  "total_tokens": 0,
+  "total_cost_usd": 0.0,
+  "providers": [
+    {"id": "openai", "tokens": 0, "cost_usd": 0.0, "requests": 0},
+    {"id": "openrouter", "tokens": 0, "cost_usd": 0.0, "requests": 0},
+    ...
+  ]
+}
+```
+
+### How It Works
+
+1. **Startup:** Scan env for `XXXXX_API_KEY` patterns
+2. **Per-provider tracking:** tokens, cost, request_count
+3. **On response:** Parse `usage` object from provider response
+4. **Aggregate:** Sum across all providers for totals
+
+### Providers Tracked
+
+| Provider | Env Var | Base URL |
+|----------|---------|----------|
+| openai | OPENAI_API_KEY | api.openai.com |
+| groq | GROQ_API_KEY | api.groq.com |
+| deepseek | DEEPSEEK_API_KEY | api.deepseek.com |
+| moonshot | MOONSHOT_API_KEY | api.moonshot.cn |
+| xai | XAI_API_KEY | api.x.ai |
+| perplexity | PERPLEXITY_API_KEY | api.perplexity.ai |
+| openrouter | OPENROUTER_API_KEY | openrouter.ai |
+| nvidia | NVIDIA_API_KEY | integrate.api.nvidia.com |
+| cerebras | CEREBRAS_API_KEY | api.cerebras.ai |
+| huggingface | HUGGINGFACE_API_KEY | api-inference.huggingface.co |
+| kilo | KILO_API_KEY | api.kilo.ai |
+| kilocode | KILOCODE_API_KEY | api.kilocode.ai |
+
