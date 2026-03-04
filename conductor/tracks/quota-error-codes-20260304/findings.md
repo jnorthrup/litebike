@@ -203,3 +203,54 @@ GET /quota
 | kilo | KILO_API_KEY | api.kilo.ai |
 | kilocode | KILOCODE_API_KEY | api.kilocode.ai |
 
+
+---
+
+## RBCursive Precompile Tests (2026-03-04)
+
+**All 53 rbcursive tests passing:**
+- 7 combinator tests
+- 3 continuation tests  
+- 10 pattern tests
+- 22 protocol tests (HTTP, JSON, SOCKS5)
+- 11 SIMD/scanner tests
+
+**Precompile module added:**
+- `literbike/src/rbcursive/precompile.rs`
+- 7 new tests for port 8888 protocol detection
+- All protocols baked at compile time:
+  - Ollama: /api/generate, /api/chat, /api/tags, /api/show
+  - OpenAI: /v1/chat/completions, /v1/models
+  - Anthropic: /v1/messages
+  - Health: /health, /metrics
+  - HTTP: GET, POST, PUT, DELETE
+
+**Test command:**
+```bash
+cd /Users/jim/work/literbike
+cargo test --lib precompile  # 7 tests pass
+cargo test --lib rbcursive   # 53 tests pass
+```
+
+---
+
+## KeyMux and ModelMux Binaries
+
+**Created:**
+- `litebike/src/bin/keymux.rs` - Private keystore manager
+- `litebike/src/bin/modelmux.rs` - Model multiplexer
+
+**KeyMux features:**
+- Load API keys from env, .env file, or JSON keystore
+- Commands: list, show, export, init
+- Secure file permissions (0o600)
+- Binary names: keymux, agent8888
+
+**ModelMux features:**
+- Free-first quota policy
+- HTTP server on port 8888 (agent8888 mode) or 8889
+- Endpoints: /v1/models, /health, /quota
+- Binary names: modelmux, agent8888, ollama
+
+**Note:** macOS linking blocked by SDK sysroot issue (not code issue)
+
