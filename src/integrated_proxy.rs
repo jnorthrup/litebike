@@ -1,19 +1,33 @@
-// Integrated Proxy Server for LiteBike
-// Simplified version with health monitoring integration
+// Integrated Proxy Architecture - Combines all litebike components
+// Channel management + Gate routing + Knox awareness + P2P subsumption
 
+use crate::channel::{ChannelManager, ChannelType, ProxyChannel};
+use crate::gates::{LitebikeGateController, GateError};
+use crate::proxy_config::KnoxProxyConfig;
+use crate::agent_8888::{ProtocolDetection, detect_protocol};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::net::{TcpListener, TcpStream};
 use std::collections::HashMap;
 use std::time::Instant;
-use log::{info, warn, error};
-use literbike::model_serving_taxonomy::classify_http_request_prefix;
 
-/// Integrated proxy server configuration
+/// Integrated proxy server combining all litebike components
+pub struct IntegratedProxyServer {
+    channel_manager: Arc<RwLock<ChannelManager>>,
+    gate_controller: Arc<LitebikeGateController>,
+    config: IntegratedProxyConfig,
+    start_time: Instant,
+    active_connections: Arc<tokio::sync::RwLock<HashMap<String, ConnectionInfo>>>,
+}
+
+/// Integrated proxy configuration combining all component configs
 #[derive(Debug, Clone)]
 pub struct IntegratedProxyConfig {
-    pub bind_address: String,
-    pub enable_logging: bool,
+    pub bind_addresses: Vec<String>,
+    pub knox_config: KnoxProxyConfig,
+    pub enable_p2p_subsumption: bool,
+    pub enable_pattern_matching: bool,
+    pub enable_gate_routing: bool,
     pub max_connections: usize,
     pub connection_timeout_seconds: u64,
 }
@@ -21,219 +35,326 @@ pub struct IntegratedProxyConfig {
 impl Default for IntegratedProxyConfig {
     fn default() -> Self {
         Self {
-            bind_address: "0.0.0.0:8888".to_string(),
-            enable_logging: true,
+            bind_addresses: vec![
+                "0.0.0.0:8080".to_string(),  // HTTP proxy
+                "0.0.0.0:1080".to_string(),  // SOCKS5 proxy
+            ],
+            knox_config: KnoxProxyConfig::default(),
+            enable_p2p_subsumption: true,
+            enable_pattern_matching: true,
+            enable_gate_routing: true,
             max_connections: 1000,
             connection_timeout_seconds: 300,
         }
     }
 }
 
-/// Connection statistics
-#[derive(Debug, Clone)]
-pub struct ConnectionStats {
-    pub total_connections: u64,
-    pub active_connections: u64,
-    pub bytes_in: u64,
-    pub bytes_out: u64,
-    pub errors: u64,
-}
-
-/// Integrated proxy server statistics
-#[derive(Debug, Clone)]
-pub struct IntegratedProxyStats {
-    pub uptime_secs: u64,
-    pub connections: ConnectionStats,
-    pub health_status: String,
-    pub decoded_model_routes: HashMap<String, u64>,
-}
-
 /// Connection information for monitoring
 #[derive(Debug, Clone)]
 struct ConnectionInfo {
     peer_addr: std::net::SocketAddr,
+    protocol: String,
+    channel: String,
+    gate: String,
     start_time: Instant,
     bytes_transferred: u64,
-}
-
-/// Integrated proxy server combining litebike components
-pub struct IntegratedProxyServer {
-    config: IntegratedProxyConfig,
-    start_time: Instant,
-    total_connections: Arc<RwLock<u64>>,
-    active_connections: Arc<RwLock<HashMap<String, ConnectionInfo>>>,
-    bytes_in: Arc<RwLock<u64>>,
-    bytes_out: Arc<RwLock<u64>>,
-    errors: Arc<RwLock<u64>>,
-    decoded_model_routes: Arc<RwLock<HashMap<String, u64>>>,
 }
 
 impl IntegratedProxyServer {
     /// Create new integrated proxy server
     pub fn new(config: IntegratedProxyConfig) -> Self {
+        let mut channel_manager = ChannelManager::new();
+
+        // Register proxy channel with Knox integration
+        let proxy_channel = ProxyChannel::with_knox_config(config.knox_config.clone());
+        channel_manager.register_channel(
+            "knox_proxy".to_string(),
+            Box::new(proxy_channel)
+        );
+
+        let gate_controller = Arc::new(LitebikeGateController::new());
+
+        // Enable Knox mode if configured
+        if config.knox_config.enable_knox_bypass {
+            gate_controller.enable_knox_mode();
+        }
+
         Self {
+            channel_manager: Arc::new(RwLock::new(channel_manager)),
+            gate_controller,
             config,
             start_time: Instant::now(),
-            total_connections: Arc::new(RwLock::new(0)),
-            active_connections: Arc::new(RwLock::new(HashMap::new())),
-            bytes_in: Arc::new(RwLock::new(0)),
-            bytes_out: Arc::new(RwLock::new(0)),
-            errors: Arc::new(RwLock::new(0)),
-            decoded_model_routes: Arc::new(RwLock::new(HashMap::new())),
+            active_connections: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
         }
     }
 
     /// Start the integrated proxy server
     pub async fn start(&self) -> Result<(), IntegratedProxyError> {
-        info!("🚀 Starting Integrated LiteBike Proxy Server");
-        info!("   Bind address: {}", self.config.bind_address);
-        info!("   Max connections: {}", self.config.max_connections);
+        println!("Starting Integrated LiteBike Proxy Server");
+        println!("   Addresses: {:?}", self.config.bind_addresses);
+        println!("   Knox bypass: {}", self.config.knox_config.enable_knox_bypass);
+        println!("   Pattern matching: {}", self.config.enable_pattern_matching);
+        println!("   Gate routing: {}", self.config.enable_gate_routing);
+        println!("   P2P subsumption: {}", self.config.enable_p2p_subsumption);
 
-        let listener = TcpListener::bind(&self.config.bind_address)
-            .await
-            .map_err(|e| IntegratedProxyError::BindFailed(e.to_string()))?;
+        self.initialize_channels().await?;
 
-        info!("   Listening on {}", self.config.bind_address);
+        let mut listener_handles = Vec::new();
 
-        loop {
-            match listener.accept().await {
-                Ok((stream, addr)) => {
-                    let total_conns = self.total_connections.clone();
-                    let active_conns = self.active_connections.clone();
-                    let bytes_in = self.bytes_in.clone();
-                    let bytes_out = self.bytes_out.clone();
-                    let errors = self.errors.clone();
-                    let decoded_model_routes = self.decoded_model_routes.clone();
-                    let timeout = self.config.connection_timeout_seconds;
+        for bind_addr in &self.config.bind_addresses {
+            let listener = TcpListener::bind(bind_addr).await
+                .map_err(|e| IntegratedProxyError::BindFailed(bind_addr.clone(), e.to_string()))?;
 
-                    tokio::spawn(async move {
-                        // Increment total connections
-                        *total_conns.write().await += 1;
+            println!("Listening on {}", bind_addr);
 
-                        // Add to active connections
-                        let conn_id = format!("{}:{}", addr.ip(), addr.port());
-                        active_conns.write().await.insert(
-                            conn_id.clone(),
-                            ConnectionInfo {
-                                peer_addr: addr,
-                                start_time: Instant::now(),
-                                bytes_transferred: 0,
-                            },
-                        );
-
-                        // Handle connection
-                        match handle_connection(stream, timeout).await {
-                            Ok((rx, tx, decoded_key)) => {
-                                *bytes_in.write().await += rx;
-                                *bytes_out.write().await += tx;
-                                if let Some(key) = decoded_key {
-                                    let mut counts = decoded_model_routes.write().await;
-                                    *counts.entry(key).or_insert(0) += 1;
-                                }
-                            }
-                            Err(e) => {
-                                warn!("Connection error: {}", e);
-                                *errors.write().await += 1;
-                            }
-                        }
-
-                        // Remove from active connections
-                        active_conns.write().await.remove(&conn_id);
-                    });
-                }
-                Err(e) => {
-                    error!("Accept error: {}", e);
-                    *self.errors.write().await += 1;
-                }
-            }
+            let handle = self.spawn_listener(listener, bind_addr.clone()).await;
+            listener_handles.push(handle);
         }
+
+        self.print_status().await;
+
+        futures::future::join_all(listener_handles).await;
+
+        Ok(())
     }
 
-    /// Get proxy server statistics
+    /// Initialize proxy channels
+    async fn initialize_channels(&self) -> Result<(), IntegratedProxyError> {
+        let mut channel_manager = self.channel_manager.write().await;
+
+        channel_manager.open_channel("knox_proxy", ChannelType::Knox).await
+            .map_err(|e| IntegratedProxyError::ChannelFailed(format!("Knox channel: {}", e)))?;
+
+        println!("Channels initialized successfully");
+        Ok(())
+    }
+
+    /// Spawn listener task for a specific address
+    async fn spawn_listener(&self, listener: TcpListener, bind_addr: String) -> tokio::task::JoinHandle<()> {
+        let channel_manager = self.channel_manager.clone();
+        let gate_controller = self.gate_controller.clone();
+        let active_connections = self.active_connections.clone();
+        let config = self.config.clone();
+
+        tokio::spawn(async move {
+            println!("Listener started for {}", bind_addr);
+
+            while let Ok((stream, peer_addr)) = listener.accept().await {
+                let current_connections = active_connections.read().await.len();
+                if current_connections >= config.max_connections {
+                    println!("Connection limit reached, rejecting {}", peer_addr);
+                    continue;
+                }
+
+                let conn_id = format!("{}_{}", peer_addr, Instant::now().elapsed().as_millis());
+                let handler = IntegratedConnectionHandler {
+                    conn_id: conn_id.clone(),
+                    stream,
+                    peer_addr,
+                    bind_addr: bind_addr.clone(),
+                    channel_manager: channel_manager.clone(),
+                    gate_controller: gate_controller.clone(),
+                    active_connections: active_connections.clone(),
+                    config: config.clone(),
+                };
+
+                tokio::spawn(async move {
+                    if let Err(e) = handler.handle().await {
+                        println!("Connection {} failed: {}", peer_addr, e);
+                    }
+                });
+            }
+        })
+    }
+
+    /// Print server status
+    async fn print_status(&self) {
+        println!("\nServer Status:");
+
+        let channel_manager = self.channel_manager.read().await;
+        let active_channels = channel_manager.list_active_channels();
+        println!("   Active channels: {}", active_channels.len());
+        for (name, channel_type) in active_channels {
+            println!("     - {} ({:?})", name, channel_type);
+        }
+
+        let gates = self.gate_controller.list_gates().await;
+        println!("   Available gates: {}", gates.len());
+        for gate in gates {
+            let status = if gate.is_open { "open" } else { "closed" };
+            println!("     {} {} (priority: {}, children: {})",
+                status, gate.name, gate.priority, gate.children_count);
+        }
+
+        println!("   Uptime: {:.1}s", self.start_time.elapsed().as_secs_f64());
+        println!();
+    }
+
+    /// Get server statistics
     pub async fn get_stats(&self) -> IntegratedProxyStats {
-        let active_conns = self.active_connections.read().await;
-        let total_conns = *self.total_connections.read().await;
-        let bytes_in = *self.bytes_in.read().await;
-        let bytes_out = *self.bytes_out.read().await;
-        let errors = *self.errors.read().await;
-        let decoded_model_routes = self.decoded_model_routes.read().await.clone();
+        let active_connections = self.active_connections.read().await;
+        let channel_manager = self.channel_manager.read().await;
+        let gates = self.gate_controller.list_gates().await;
 
         IntegratedProxyStats {
-            uptime_secs: self.start_time.elapsed().as_secs(),
-            connections: ConnectionStats {
-                total_connections: total_conns,
-                active_connections: active_conns.len() as u64,
-                bytes_in,
-                bytes_out,
-                errors,
-            },
-            health_status: "healthy".to_string(),
-            decoded_model_routes,
+            uptime_seconds: self.start_time.elapsed().as_secs(),
+            active_connections: active_connections.len(),
+            active_channels: channel_manager.list_active_channels().len(),
+            available_gates: gates.len(),
+            knox_enabled: self.config.knox_config.enable_knox_bypass,
+            pattern_matching_enabled: self.config.enable_pattern_matching,
+            total_bytes_transferred: active_connections.values()
+                .map(|c| c.bytes_transferred)
+                .sum(),
         }
     }
 }
 
-/// Handle individual TCP connections
-async fn handle_connection(
-    mut stream: TcpStream,
-    _timeout_secs: u64,
-) -> Result<(u64, u64, Option<String>), String> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    let mut buffer = vec![0u8; 4096];
-    let mut bytes_in = 0u64;
-    let mut bytes_out = 0u64;
-    let mut decoded_key: Option<String> = None;
-
-    // Read initial data
-    match stream.read(&mut buffer).await {
-        Ok(n) => {
-            bytes_in += n as u64;
-            if let Some(decoded) = classify_http_request_prefix(&buffer[..n]) {
-                let key = format!(
-                    "{:?}/{:?}/{:?}/{:?}",
-                    decoded.family, decoded.template, decoded.action, decoded.default_mux
-                );
-                info!(
-                    "🧭 facade decode {} path={} host={:?} confidence={}",
-                    key, decoded.path, decoded.host, decoded.confidence
-                );
-                decoded_key = Some(key);
-            }
-
-            // Simple echo response for testing
-            let response = b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nOK\r\n";
-            if let Err(e) = stream.write_all(response).await {
-                return Err(format!("Write error: {}", e));
-            }
-            bytes_out += response.len() as u64;
-        }
-        Err(e) => {
-            return Err(format!("Read error: {}", e));
-        }
-    }
-
-    Ok((bytes_in, bytes_out, decoded_key))
+/// Connection handler for integrated proxy
+struct IntegratedConnectionHandler {
+    conn_id: String,
+    stream: TcpStream,
+    peer_addr: std::net::SocketAddr,
+    bind_addr: String,
+    channel_manager: Arc<RwLock<ChannelManager>>,
+    gate_controller: Arc<LitebikeGateController>,
+    active_connections: Arc<tokio::sync::RwLock<HashMap<String, ConnectionInfo>>>,
+    config: IntegratedProxyConfig,
 }
 
-/// Proxy server errors
+impl IntegratedConnectionHandler {
+    async fn handle(mut self) -> Result<(), IntegratedProxyError> {
+        use tokio::io::AsyncReadExt;
+
+        println!("New connection: {} -> {}", self.peer_addr, self.bind_addr);
+
+        let mut buffer = vec![0u8; 4096];
+        let n = self.stream.read(&mut buffer).await
+            .map_err(|e| IntegratedProxyError::ConnectionFailed(format!("Read failed: {}", e)))?;
+
+        if n == 0 {
+            return Ok(());
+        }
+
+        buffer.truncate(n);
+
+        // Protocol detection using local detect_protocol
+        let protocol = if self.config.enable_pattern_matching {
+            match detect_protocol(&buffer) {
+                ProtocolDetection::Http(_) => "http",
+                ProtocolDetection::Socks5 => "socks5",
+                _ => "tcp",
+            }
+        } else {
+            "tcp"
+        };
+
+        println!("Detected protocol: {} from {}", protocol, self.peer_addr);
+
+        let conn_info = ConnectionInfo {
+            peer_addr: self.peer_addr,
+            protocol: protocol.to_string(),
+            channel: "knox_proxy".to_string(),
+            gate: "unknown".to_string(),
+            start_time: Instant::now(),
+            bytes_transferred: n as u64,
+        };
+
+        self.active_connections.write().await.insert(self.conn_id.clone(), conn_info);
+
+        let result = if self.config.enable_gate_routing {
+            self.gate_controller.route_by_protocol(protocol, &buffer, Some(self.stream)).await
+        } else {
+            let channel_manager = self.channel_manager.read().await;
+            if let Some(provider) = channel_manager.channels.get("knox_proxy") {
+                match provider.handle_connection(self.stream, "knox_proxy").await {
+                    Ok(()) => Ok(b"Direct channel processing complete".to_vec()),
+                    Err(e) => Err(GateError::ProcessingFailed(e)),
+                }
+            } else {
+                Err(GateError::ProcessingFailed("No channel available".to_string()))
+            }
+        };
+
+        match result {
+            Ok(response) => {
+                println!("Connection processed: {} bytes", response.len());
+                if let Some(conn) = self.active_connections.write().await.get_mut(&self.conn_id) {
+                    conn.bytes_transferred += response.len() as u64;
+                }
+            }
+            Err(e) => {
+                println!("Connection failed: {}", e);
+                self.active_connections.write().await.remove(&self.conn_id);
+                return Err(IntegratedProxyError::ConnectionFailed(e.to_string()));
+            }
+        }
+
+        self.active_connections.write().await.remove(&self.conn_id);
+
+        Ok(())
+    }
+}
+
+/// Integrated proxy statistics
+#[derive(Debug, Clone)]
+pub struct IntegratedProxyStats {
+    pub uptime_seconds: u64,
+    pub active_connections: usize,
+    pub active_channels: usize,
+    pub available_gates: usize,
+    pub knox_enabled: bool,
+    pub pattern_matching_enabled: bool,
+    pub total_bytes_transferred: u64,
+}
+
+/// Integrated proxy errors
 #[derive(Debug)]
 pub enum IntegratedProxyError {
-    BindFailed(String),
+    BindFailed(String, String),
+    ChannelFailed(String),
     ConnectionFailed(String),
-    Timeout,
-    Other(String),
+    ConfigurationError(String),
 }
 
 impl std::fmt::Display for IntegratedProxyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            IntegratedProxyError::BindFailed(msg) => write!(f, "Bind failed: {}", msg),
-            IntegratedProxyError::ConnectionFailed(msg) => write!(f, "Connection failed: {}", msg),
-            IntegratedProxyError::Timeout => write!(f, "Connection timed out"),
-            IntegratedProxyError::Other(msg) => write!(f, "Error: {}", msg),
+            IntegratedProxyError::BindFailed(addr, reason) =>
+                write!(f, "Failed to bind to {}: {}", addr, reason),
+            IntegratedProxyError::ChannelFailed(reason) =>
+                write!(f, "Channel error: {}", reason),
+            IntegratedProxyError::ConnectionFailed(reason) =>
+                write!(f, "Connection error: {}", reason),
+            IntegratedProxyError::ConfigurationError(reason) =>
+                write!(f, "Configuration error: {}", reason),
         }
     }
 }
 
 impl std::error::Error for IntegratedProxyError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn integrated_proxy_creation() {
+        let config = IntegratedProxyConfig::default();
+        let proxy = IntegratedProxyServer::new(config);
+
+        let stats = proxy.get_stats().await;
+        assert_eq!(stats.active_connections, 0);
+        assert!(stats.uptime_seconds < 1);
+    }
+
+    #[test]
+    fn integrated_config_defaults() {
+        let config = IntegratedProxyConfig::default();
+
+        assert_eq!(config.bind_addresses.len(), 2);
+        assert!(config.enable_p2p_subsumption);
+        assert!(config.enable_pattern_matching);
+        assert!(config.enable_gate_routing);
+    }
+}

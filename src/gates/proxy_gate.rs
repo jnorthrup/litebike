@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use parking_lot::RwLock;
 use tokio::net::TcpStream;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWriteExt, AsyncReadExt};
 
 pub struct ProxyGate {
     enabled: Arc<RwLock<bool>>,
@@ -47,17 +47,10 @@ impl ProxyGate {
         
         // Check for HTTP methods
         let http_methods: &[&[u8]] = &[
-            b"GET ",
-            b"POST ",
-            b"PUT ",
-            b"DELETE ",
-            b"HEAD ",
-            b"OPTIONS ",
-            b"CONNECT ",
-            b"TRACE ",
-            b"PATCH ",
+            b"GET ", b"POST ", b"PUT ", b"DELETE ",
+            b"HEAD ", b"OPTIONS ", b"CONNECT ", b"TRACE ", b"PATCH ",
         ];
-        
+
         for method in http_methods {
             if data.starts_with(method) {
                 return true;
@@ -134,7 +127,7 @@ impl ProxyGate {
     }
     
     /// Handle regular HTTP requests
-    async fn handle_http_request(&self, method: &str, target: &str, _data: &[u8], stream: Option<TcpStream>) -> Result<Vec<u8>, GateError> {
+    async fn handle_http_request(&self, method: &str, target: &str, data: &[u8], stream: Option<TcpStream>) -> Result<Vec<u8>, GateError> {
         println!("📄 HTTP {} to {}", method, target);
         
         // For now, return a simple proxy response
@@ -172,28 +165,6 @@ impl ProxyGate {
         
         Ok(response)
     }
-
-    async fn process_connection(
-        &self,
-        data: &[u8],
-        stream: Option<TcpStream>,
-    ) -> Result<Vec<u8>, GateError> {
-        if !self.is_open(data).await {
-            return Err(GateError::ProtocolNotSupported(
-                "Proxy gate is closed or no proxy patterns detected".to_string(),
-            ));
-        }
-
-        if self.detect_http_proxy(data) {
-            self.process_http_proxy(data, stream).await
-        } else if self.detect_socks5_proxy(data) {
-            self.process_socks5_proxy(data, stream).await
-        } else {
-            Err(GateError::ProtocolNotSupported(
-                "Unknown proxy protocol".to_string(),
-            ))
-        }
-    }
 }
 
 #[async_trait]
@@ -214,12 +185,35 @@ impl Gate for ProxyGate {
         }
     }
     
+    async fn process_connection(&self, data: &[u8], stream: Option<TcpStream>) -> Result<Vec<u8>, GateError> {
+        if !self.is_open(data).await {
+            return Err(GateError::ProtocolNotSupported("Proxy gate is closed or no proxy patterns detected".to_string()));
+        }
+        
+        // Route to appropriate proxy handler
+        if self.detect_http_proxy(data) {
+            self.process_http_proxy(data, stream).await
+        } else if self.detect_socks5_proxy(data) {
+            self.process_socks5_proxy(data, stream).await
+        } else {
+            Err(GateError::ProtocolNotSupported("Unknown proxy protocol".to_string()))
+        }
+    }
+    
     fn name(&self) -> &str {
         "proxy"
     }
     
+    fn children(&self) -> Vec<Arc<dyn Gate>> {
+        vec![]
+    }
+    
     fn priority(&self) -> u8 {
         80 // High priority for proxy protocols
+    }
+    
+    fn can_handle_protocol(&self, protocol: &str) -> bool {
+        matches!(protocol, "http" | "https" | "socks5" | "proxy")
     }
 }
 
