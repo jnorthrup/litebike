@@ -1022,6 +1022,15 @@ impl ModelProxy {
             ("GET", "/") => HttpResponse::ok("\"Ollama is running\"".to_string()),
             ("GET", "/api/version") => HttpResponse::ok(r#"{"version":"0.6.4"}"#.to_string()),
             ("GET", "/api/tags") => {
+                // quick override: when OLLAMA_FORCE3 is set, return exactly three identical
+                // tuples with a single name field, ignoring any real tags or models.
+                if std::env::var("OLLAMA_FORCE3").is_ok() {
+                    let tag = serde_json::json!({
+                        "name": "forced-model",
+                    });
+                    let resp = serde_json::json!({ "models": [tag.clone(), tag.clone(), tag] });
+                    return HttpResponse::ok(serde_json::to_string(&resp).unwrap());
+                }
                 // Draw-through: get_models() populates cache on miss
                 let models_val = self.get_models().await;
                 let empty = vec![];
