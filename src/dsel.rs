@@ -48,6 +48,7 @@ pub fn discover_providers() -> Vec<Provider> {
     let provider_specs: &[(&str, &[&str])] = &[
         ("kilo_code",  &["KILOCODE_API_KEY", "KILOAI_API_KEY", "KILO_CODE_API_KEY", "KILO_API_KEY"]),
         ("moonshot",   &["MOONSHOTAI_API_KEY", "KIMI_API_KEY", "MOONSHOT_API_KEY"]),
+        ("moonshotai", &["MOONSHOTAI_API_KEY", "KIMI_API_KEY", "MOONSHOT_API_KEY"]),
         ("deepseek",   &["DEEPSEEK_API_KEY"]),
         ("openai",     &["OPENAI_API_KEY"]),
         ("anthropic",  &["ANTHROPIC_API_KEY"]),
@@ -56,6 +57,7 @@ pub fn discover_providers() -> Vec<Provider> {
         ("xai",        &["XAI_API_KEY", "GROK_API_KEY"]),
         ("cerebras",   &["CEREBRAS_API_KEY"]),
         ("nvidia",     &["NVIDIA_API_KEY"]),
+        ("opencode",   &["OPENCODE_API_KEY"]),
         ("perplexity", &["PERPLEXITY_API_KEY"]),
         ("gemini",     &["GEMINI_API_KEY"]),
     ];
@@ -96,6 +98,7 @@ fn get_default_base_url(name: &str) -> String {
         "cerebras"   => "https://api.cerebras.ai/v1".to_string(),
         "nvidia"     => "https://integrate.api.nvidia.com/v1".to_string(),
         "opencode"   => "https://api.opencode.ai".to_string(),
+        "moonshotai" => "https://api.moonshot.cn/v1".to_string(),
         "perplexity" => "https://api.perplexity.ai".to_string(),
         "gemini"     => "https://generativelanguage.googleapis.com/v1beta".to_string(),
         _ => String::new(),
@@ -107,14 +110,21 @@ fn get_default_base_url(name: &str) -> String {
 pub fn route(model: &str) -> Option<(String, String, String)> {
     let providers = discover_providers();
     
-    let specified = model.split('/').next().unwrap_or("");
+    let prefix = model.split('/').next().unwrap_or("");
     
-    if !specified.is_empty() {
-        if let Some(p) = providers.iter().find(|p| p.name == specified) {
+    if !prefix.is_empty() {
+        // Exact provider name match
+        if let Some(p) = providers.iter().find(|p| p.name == prefix) {
             return Some((p.name.clone(), p.base_url.clone(), p.key_env.clone()));
+        }
+        // Slashed model ID (PROVIDER/MODEL) but prefix unknown → refuse rather than
+        // silently routing to the wrong provider and getting a confusing 502.
+        if model.contains('/') {
+            return None;
         }
     }
     
+    // No slash — plain model name, use lowest-priority available provider
     providers.into_iter()
         .min_by_key(|p| p.priority)
         .map(|p| (p.name, p.base_url, p.key_env))
