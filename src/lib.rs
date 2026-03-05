@@ -8,11 +8,16 @@
 //! - Channel management (channel)
 //! - Integrated proxy server (integrated_proxy)
 
+pub mod agent_8888;
 pub mod agents;
+pub mod channel;
+pub mod dsel;
 pub mod gates;
 pub mod integrated_proxy;
 pub mod keymux;
 pub mod knox_proxy;
+pub mod models;
+pub mod proxy_config;
 pub mod syscall_net;
 pub mod tethering_bypass;
 
@@ -20,45 +25,14 @@ pub mod tethering_bypass;
 pub use agents::model_hierarchy::{ModelHierarchy, ModelNode, ProviderConfig};
 pub use agents::web_tools::{WebSearchRequest, WebSearchResult, WebTools};
 pub use keymux::{ModelInfo, WebModelCard, ModelId, ModelCardStore, ModelFacade, ModelMapping};
-pub use keymux::dsel::{QuotaContainer, ProviderPotential, DSELBuilder, RuleEngine, ProviderSelectionRule};
+pub use dsel::{route, key, has_key, available, status, provider_quota_status, all_provider_quotas, track_tokens};
+pub use models::{ModelCache, ModelRegistry, ModelProxy, ProxyConfig, CachedModel};
 
-/// LiteBike integrated proxy facade for simple usage
-pub struct LiteBike {
-    proxy_server: IntegratedProxyServer,
-}
 
-impl LiteBike {
-    /// Create new LiteBike instance with default configuration
-    pub fn new() -> Self {
-        let config = IntegratedProxyConfig::default();
-        Self {
-            proxy_server: IntegratedProxyServer::new(config),
-        }
-    }
 
-    /// Create new LiteBike instance with custom configuration
-    pub fn with_config(config: IntegratedProxyConfig) -> Self {
-        Self {
-            proxy_server: IntegratedProxyServer::new(config),
-        }
-    }
-
-    /// Start the LiteBike proxy server
-    pub async fn start(self) -> Result<(), integrated_proxy::IntegratedProxyError> {
-        self.proxy_server.start().await
-    }
-
-    /// Get proxy server statistics
-    pub async fn stats(&self) -> IntegratedProxyStats {
-        self.proxy_server.get_stats().await
-    }
-}
-
-impl Default for LiteBike {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn test_litebike_system() {

@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 /// Represents a provider with quota and priority information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -861,6 +863,101 @@ pub struct RuleEngine {
     hierarchical_selector: Option<HierarchicalModelSelector>,
     token_ledger_enabled: bool,
     quota_tracking: HashMap<String, ProviderQuotaTracking>,
+    /// Metrics for observability
+    metrics: DSELMetrics,
+}
+
+/// Metrics and logging for DSEL operations
+#[derive(Debug, Default)]
+pub struct DSELMetrics {
+    /// Total provider selections made
+    pub total_selections: AtomicU64,
+    /// Selections by provider name
+    pub selections_by_provider: Mutex<HashMap<String, u64>>,
+    /// Quota violations (requests that exceeded quota)
+    pub quota_violations: AtomicU64,
+    /// Hierarchical transformations applied
+    pub hierarchical_transforms: AtomicU64,
+    /// Token usage tracked
+    pub total_tokens_tracked: AtomicU64,
+    /// Rate limit hits
+    pub rate_limit_hits: AtomicU64,
+    /// Fallback selections (second choice or later)
+    pub fallback_selections: AtomicU64,
+}
+
+impl DSELMetrics {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a provider selection
+    pub fn record_selection(&self, provider: &str, is_fallback: bool) {
+        self.total_selections.fetch_add(1, Ordering::Relaxed);
+        let mut selections = self.selections_by_provider.lock().unwrap();
+        *selections.entry(provider.to_string()).or_insert(0) += 1;
+        if is_fallback {
+            self.fallback_selections.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Record quota violation
+    pub fn record_quota_violation(&self) {
+        self.quota_violations.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record hierarchical transformation
+    pub fn record_hierarchical_transform(&self) {
+        self.hierarchical_transforms.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record token tracking
+    pub fn record_token_usage(&self, tokens: u64) {
+        self.total_tokens_tracked.fetch_add(tokens, Ordering::Relaxed);
+    }
+
+    /// Record rate limit hit
+    pub fn record_rate_limit(&self) {
+        self.rate_limit_hits.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Get selection statistics
+    pub fn get_selection_stats(&self) -> (u64, u64, f64) {
+        let total = self.total_selections.load(Ordering::Relaxed);
+        let fallbacks = self.fallback_selections.load(Ordering::Relaxed);
+        let fallback_rate = if total > 0 {
+            (fallbacks as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+        (total, fallbacks, fallback_rate)
+    }
+
+    /// Get top providers by usage
+    pub fn get_top_providers(&self, limit: usize) -> Vec<(String, u64)> {
+        let providers: Vec<(String, u64)> = self.selections_by_provider.lock().unwrap().iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+        let mut sorted = providers;
+        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted.into_iter().take(limit).collect()
+    }
+
+    /// Export metrics as JSON-serializable structure
+    pub fn export(&self) -> serde_json::Value {
+        let (total, fallbacks, fallback_rate) = self.get_selection_stats();
+        serde_json::json!({
+            "total_selections": self.total_selections.load(Ordering::Relaxed),
+            "selections_by_provider": *self.selections_by_provider.lock().unwrap(),
+            "quota_violations": self.quota_violations.load(Ordering::Relaxed),
+            "hierarchical_transforms": self.hierarchical_transforms.load(Ordering::Relaxed),
+            "total_tokens_tracked": self.total_tokens_tracked.load(Ordering::Relaxed),
+            "rate_limit_hits": self.rate_limit_hits.load(Ordering::Relaxed),
+            "fallback_selections": fallbacks,
+            "fallback_rate_percent": fallback_rate,
+            "top_providers": self.get_top_providers(5)
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -880,23 +977,36 @@ impl RuleEngine {
             hierarchical_selector: None,
             token_ledger_enabled: false,
             quota_tracking: HashMap::new(),
+            metrics: DSELMetrics::new(),
         }
+    }
+
+    /// Get current metrics
+    pub fn get_metrics(&self) -> &DSELMetrics {
+        &self.metrics
+    }
+
+    /// Get mutable metrics for advanced operations
+    pub fn get_metrics_mut(&mut self) -> &mut DSELMetrics {
+        &mut self.metrics
     }
 
     /// Enable token ledger tracking for providers
     pub fn enable_token_ledger(&mut self) {
         self.token_ledger_enabled = true;
+        log::info!("DSEL: Token ledger enabled");
 
         // Initialize quota tracking for specific providers
         let providers = vec!["kilo_code", "opencode", "openrouter", "nvidia"];
-        for provider in providers {
+        let provider_count = providers.len();
+        for provider in &providers {
             self.quota_tracking.insert(
                 provider.to_string(),
                 ProviderQuotaTracking {
                     provider_name: provider.to_string(),
                     tokens_used_today: 0,
                     tokens_used_this_hour: 0,
-                    estimated_remaining_quota: match provider {
+                    estimated_remaining_quota: match *provider {
                         "kilo_code" => 1_000_000,
                         "opencode" => 500_000,
                         "openrouter" => 2_000_000,
@@ -908,6 +1018,7 @@ impl RuleEngine {
                 },
             );
         }
+        log::info!("DSEL: Initialized quota tracking for {} providers", provider_count);
     }
 
     pub fn add_rule(&mut self, rule: ProviderSelectionRule) {
@@ -953,9 +1064,14 @@ impl RuleEngine {
         } else {
             tracking.estimated_remaining_quota = 0;
             tracking.quota_confidence = 0.0;
+            log::warn!("DSEL: Provider {} quota exhausted", provider);
         }
 
         tracking.last_quota_update = Self::current_timestamp();
+        
+        // Record metrics
+        self.metrics.record_token_usage(tokens);
+        log::debug!("DSEL: Tracked {} tokens for provider {}", tokens, provider);
 
         Ok(())
     }
@@ -1029,8 +1145,13 @@ impl RuleEngine {
     ) -> Option<&'a ProviderPotential> {
         // If model_id is provided and hierarchical selector exists, try to find best approximation
         if let (Some(model_id), Some(selector)) = (model_id, &self.hierarchical_selector) {
+            // Record hierarchical transformation attempt
+            self.metrics.record_hierarchical_transform();
+            
             // Handle complex hierarchical transformations
             let transformations = selector.handle_complex_transformations(model_id);
+            log::debug!("DSEL: Transforming hierarchical model ID: {} -> {} transformations", 
+                       model_id, transformations.len());
 
             // Try each transformation to find a matching provider
             for transformed in transformations {
@@ -1044,6 +1165,7 @@ impl RuleEngine {
                             if self.token_ledger_enabled
                                 && !self.has_sufficient_quota(&provider.name, tokens as u64)
                             {
+                                log::debug!("DSEL: Provider {} has insufficient quota", provider.name);
                                 continue; // Skip providers with insufficient quota
                             }
 
@@ -1051,6 +1173,8 @@ impl RuleEngine {
                             if self.rules.is_empty()
                                 || self.rules.iter().any(|rule| rule.matches(provider, tokens))
                             {
+                                log::info!("DSEL: Selected provider {} for transformed model {}", 
+                                          provider.name, transformed);
                                 return Some(provider);
                             }
                         }
@@ -1060,7 +1184,14 @@ impl RuleEngine {
         }
 
         // Fallback to standard rule-based selection with quota consideration
-        self.select_provider_by_rules_with_quota(providers, tokens)
+        let result = self.select_provider_by_rules_with_quota(providers, tokens);
+        if let Some(provider) = result {
+            log::debug!("DSEL: Selected provider {} via standard selection", provider.name);
+        } else {
+            log::warn!("DSEL: No provider found for {} tokens", tokens);
+            self.metrics.record_quota_violation();
+        }
+        result
     }
 
     /// Standard rule-based provider selection

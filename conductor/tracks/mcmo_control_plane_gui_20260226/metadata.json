@@ -1,0 +1,10 @@
+{
+  "track_id": "mcmo_control_plane_gui_20260226",
+  "type": "feature",
+  "status": "specified",
+  "created_at": "2026-02-26T00:00:00Z",
+  "updated_at": "2026-03-04T23:59:59Z",
+  "description": "Implement a standalone desktop GUI (gated under `litebike`) that controls the remote agent mesh via SSH/UPnP Creeping Vine tunnels.",
+  "completion_percentage": 10,
+  "phase": "ready_to_start"
+}

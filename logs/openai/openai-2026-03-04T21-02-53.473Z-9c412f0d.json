@@ -1,0 +1,880 @@
+{
+  "timestamp": "2026-03-04T21:02:53.473Z",
+  "request": {
+    "model": "coder-model",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a general-purpose research and code analysis agent. Given the user's message, you should use the tools available to complete the task. Do what has been asked; nothing more, nothing less. When you complete the task simply respond with a detailed writeup.\n\nYour strengths:\n- Searching for code, configurations, and patterns across large codebases\n- Analyzing multiple files to understand system architecture\n- Investigating complex questions that require exploring many files\n- Performing multi-step research tasks\n\nGuidelines:\n- For file searches: Use Grep or Glob when you need to search broadly. Use Read when you know the specific file path.\n- For analysis: Start broad and narrow down. Use multiple search strategies if the first doesn't yield results.\n- Be thorough: Check multiple locations, consider different naming conventions, look for related files.\n- NEVER create files unless they're absolutely necessary for achieving your goal. ALWAYS prefer editing an existing file to creating a new one.\n- NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested.\n- In your final response always share relevant file names and code snippets. Any file paths you return in your response MUST be absolute. Do NOT use relative paths.\n- For clear communication, avoid using emojis.\n\n\nNotes:\n- NEVER create files unless they're absolutely necessary for achieving your goal. ALWAYS prefer editing an existing file to creating a new one.\n- NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.\n- In your final response always share relevant file names and code snippets. Any file paths you return in your response MUST be absolute. Do NOT use relative paths.\n- For clear communication with the user the assistant MUST avoid using emojis.\n\nImportant Rules:\n - You operate in non-interactive mode: do not ask the user questions; proceed with available context.\n - Use tools only when necessary to obtain facts or make changes.\n - When the task is complete, return the final result as a normal model response (not a tool call) and stop.\n\n---\n\n--- Context from: ../../.qwen/output-language.md ---\n# Output language preference: English\n<!-- qwen-code:llm-output-language: English -->\n\n## Goal\nPrefer responding in **English** for normal assistant messages and explanations.\n\n## Keep technical artifacts unchanged\nDo **not** translate or rewrite:\n- Code blocks, CLI commands, file paths, stack traces, logs, JSON keys, identifiers\n- Exact quoted text from the user (keep quotes verbatim)\n\n## When a conflict exists\nIf higher-priority instructions (system/developer) require a different behavior, follow them.\n\n## Tool / system outputs\nRaw tool/system outputs may contain fixed-format English. Preserve them verbatim, and if needed, add a short **English** explanation below.\n--- End of Context from: ../../.qwen/output-language.md ---"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "This is the Qwen Code. We are setting up the context for our chat.\nToday's date is Wednesday, March 4, 2026 (formatted according to the user's locale).\nMy operating system is: darwin\nI'm currently working in the directory: /Users/jim/work/litebike\nHere is the folder structure of the current working directories:\n\nShowing up to 20 items:\n\n/Users/jim/work/litebike/\n├───.gitignore\n├───build.rs\n├───Cargo-backup.toml\n├───Cargo-full.toml\n├───Cargo-minimal.toml\n├───Cargo-original.toml\n├───Cargo-test.toml\n├───Cargo.toml\n├───Cargo.toml.bak\n├───COMMERCIAL-LICENSE.md\n├───COMMERCIAL.md\n├───COPYING\n├───DEPLOY.md\n├───docker-compose.yml\n├───ENHANCEMENTS_2026_02_25.md\n├───install-system-wide.sh\n├───KNOX_SUBSUMPTION_HIERARCHY.md\n├───LICENSE\n├───Makefile\n├───P2P_SUBSUMPTION_SPEC.md\n├───...\n└───..."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Got it. Thanks for the context!"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Search the web for \"kilo.ai gateway\" GitHub repository and find its source code. I need to understand how it works as a model gateway/proxy. Look for:\n1. The GitHub repository URL\n2. Key features and architecture\n3. How it handles model routing/proxying\n4. Any configuration patterns it uses\n\nReturn the findings with links and key implementation details."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_a802e13564e54da1aa8ac174",
+            "type": "function",
+            "function": {
+              "name": "web_search",
+              "arguments": "{\"query\":\"kilo.ai gateway GitHub repository source code\"}"
+            }
+          }
+        ],
+        "reasoning_content": "The user wants me to search for information about \"kilo.ai gateway\" GitHub repository. I need to use the web_search tool to find this information. Let me search for this."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_a802e13564e54da1aa8ac174",
+        "content": [
+          {
+            "type": "text",
+            "text": "Error during web search: [DashScope] Search failed: API error: 429 Too Many Requests - {\"errorType\":\"THROTTLING.userQPSLimit\",\"rid\":\"f5d85c11-26f1-4402-93dd-b8384c80d753\",\"message\":null,\"status\":429}"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_38bb53c781c648f0a515fea8",
+            "type": "function",
+            "function": {
+              "name": "web_search",
+              "arguments": "{\"query\":\"kilo.ai model gateway proxy open source\"}"
+            }
+          }
+        ],
+        "reasoning_content": "The search failed due to rate limiting. Let me try a different search query or approach."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_38bb53c781c648f0a515fea8",
+        "content": [
+          {
+            "type": "text",
+            "text": "Error during web search: [DashScope] Search failed: API error: 429 Too Many Requests - {\"errorType\":\"THROTTLING.userQPSLimit\",\"rid\":\"54ca0371-2bb4-459f-844f-5eb25f9e7d29\",\"message\":null,\"status\":429}"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_eb63890157fb4eea96100b9c",
+            "type": "function",
+            "function": {
+              "name": "web_search",
+              "arguments": "{\"query\":\"kilo gateway GitHub model routing\"}"
+            }
+          }
+        ],
+        "reasoning_content": "The search is being rate limited. Let me try once more with a slightly different query."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_eb63890157fb4eea96100b9c",
+        "content": [
+          {
+            "type": "text",
+            "text": "Error during web search: [DashScope] Search failed: API error: 429 Too Many Requests - {\"errorType\":\"THROTTLING.userQPSLimit\",\"rid\":\"2a7aef92-65d1-48cb-9f58-7e47bf48e58a\",\"message\":null,\"status\":429}"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_2327fa0f5ed149b38afe6deb",
+            "type": "function",
+            "function": {
+              "name": "web_search",
+              "arguments": "{\"query\":\"kilo.ai GitHub\"}"
+            }
+          }
+        ],
+        "reasoning_content": "The web search is being rate limited. Let me try using the web_fetch tool to directly fetch from GitHub if I can find a likely URL. Let me try searching with a different approach - maybe searching for \"kilo.ai\" directly."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_2327fa0f5ed149b38afe6deb",
+        "content": [
+          {
+            "type": "text",
+            "text": "Error during web search: [DashScope] Search failed: API error: 429 Too Many Requests - {\"errorType\":\"THROTTLING.userQPSLimit\",\"rid\":\"36f87d17-12d7-4abb-bc4d-3b0f25fb4ff7\",\"message\":null,\"status\":429}"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_36d20c016619400babe223cd",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"url\":\"https://github.com/search?q=kilo+gateway&type=repositories\",\"prompt\":\"Find any repositories related to kilo gateway or kilo.ai model gateway. List the repository names, URLs, and descriptions.\"}"
+            }
+          }
+        ],
+        "reasoning_content": "The web search is consistently failing due to rate limiting. Let me try using web_fetch to directly access GitHub search or a potential repository URL. Let me try fetching from GitHub's search page or a likely repository URL."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_36d20c016619400babe223cd",
+        "content": [
+          {
+            "type": "text",
+            "text": "Based on the GitHub search results for \"kilo gateway\", here are the repositories found:\n\n| Repository Name | URL | Description |\n|----------------|-----|-------------|\n| **ANXKHN/free-kilo-gateway** | `https://github.com/ANXKHN/free-kilo-gateway` | Add free Kilo Gateway models to OpenCode |\n| **JUNGHOONGHAE/opencode-kilo-auth** | `https://github.com/JUNGHOONGHAE/opencode-kilo-auth` | OpenCode plugin for Kilo Gateway — access 342+ AI models including 29 free tier models like GLM 5 |\n| **ANGANSAMADDER/openkilo** | `https://github.com/ANGANSAMADDER/openkilo` | Access 40+ free AI models through Kilo Gateway. Zero-config OpenCode plugin |\n| **TREMKLEKMZ/kilo-gateway-browser** | `https://github.com/TREMKLEKMZ/kilo-gateway-browser` | *(No description provided)* |\n| **DILLONTKH/kilo-gateway-models-explorer** | `https://github.com/DILLONTKH/kilo-gateway-models-explorer` | *(No description provided)* |\n| **ANG-OR-FIVE/opencode-kilo-free-provider** | `https://github.com/ANG-OR-FIVE/opencode-kilo-free-provider` | Enable Opencode to use Kilo AI Free so you can use Kilo's free model gateway and access models like MiniMax M2.5 and GLM-5 |\n| **GITHUBGUY132010/promptlint** | `https://github.com/GITHUBGUY132010/promptlint` | Enhance your vague prompts with the power of AI, powered by the Kilo Gateway |\n| **RODRIGOGUEDES09/ghost-debugger** | `https://github.com/RODRIGOGUEDES09/ghost-debugger` | AI-powered CLI that captures error context and provides instant fixes using Claude Sonnet 4.5 via Kilo AI Gateway |\n\n**Summary:** 8 repositories were found. Most are plugins/tools for integrating Kilo Gateway with OpenCode or providing access to free AI models through the gateway."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_63b21b862a4a4e78a25eb5f4",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"prompt\":\"Find information about kilo.ai or kilo gateway. What is it? Is there an official repository? List any main/official repositories and their descriptions.\",\"url\":\"https://github.com/search?q=kilo.ai&type=repositories\"}"
+            }
+          }
+        ],
+        "reasoning_content": "Good, I found some repositories related to kilo gateway. However, these seem to be mostly client-side plugins/tools for using Kilo Gateway, not the actual Kilo Gateway source code itself. Let me search more specifically for the official Kilo Gateway or Kilo AI repository. Let me try fetching from a different search or directly try to find the main kilo repository."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_63b21b862a4a4e78a25eb5f4",
+        "content": [
+          {
+            "type": "text",
+            "text": "Based on the GitHub search results for \"kilo.ai\", here's what I found:\n\n## What is Kilo.ai / Kilo Code?\n\n**Kilo Code** is an open-source AI coding assistant designed for planning, building, and fixing code. It appears to be a VS Code extension that combines features from other AI coding tools like Roo Code and Cline, offering advanced AI capabilities and multi-model support.\n\n## Official/Main Repositories\n\n| Repository | Description | Stars | Language |\n|------------|-------------|-------|----------|\n| **[KILO-ORG/docs](https://github.com/KILO-ORG/docs)** | Official documentation for Kilo Code, the open-source AI coding assistant for planning, building, and fixing code. | 29 | TypeScript |\n| **[OpenAnalystInc/OpenAnalyst](https://github.com/OpenAnalystInc/OpenAnalyst)** | Open-source VS Code AI agent that combines the best of Roo Code, Cline and Kilo Code, with advanced AI capabilities, multi-model support. | 153 | TypeScript |\n\n## Related/Community Projects\n\n| Repository | Description |\n|------------|-------------|\n| **neonsy/neonconductor** | An AI-Agent manager, \"powered by the spirit of Kilo\" |\n| **vodailocz/kilo-kit** | A modular framework for building and managing AI agent systems at scale |\n| **vn4x/kilo-job-project-billing** | References kilo.ai/call (appears to be a billing project using Kilo) |\n\n---\n\n**Note:** The search results don't show a clear single \"official\" Kilo Code repository. The documentation is hosted under `KILO-ORG/docs`, suggesting `KILO-ORG` may be the main organization. However, the most starred related project (`OpenAnalystInc/OpenAnalyst`) appears to be a fork or derivative that combines Kilo Code with other tools.\n\nTo find the primary source repository, you may want to:\n1. Check the `KILO-ORG` organization directly on GitHub\n2. Visit kilo.ai's official website (if available)\n3. Look at the documentation repo's links for the main codebase"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_b22a30c8ea5840139ebfc5d5",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"prompt\":\"List all repositories in this organization. Find any repository related to gateway, proxy, API, or model routing.\",\"url\":\"https://github.com/orgs/KILO-ORG/repositories\"}"
+            }
+          }
+        ],
+        "reasoning_content": "Interesting. It seems like \"Kilo Code\" is an AI coding assistant, but the user is asking about \"kilo.ai gateway\" which appears to be a model gateway/proxy service. The search results show several plugins that use Kilo Gateway, but I haven't found the actual gateway source code yet. Let me try to search more specifically for the gateway itself or look at the KILO-ORG organization."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_b22a30c8ea5840139ebfc5d5",
+        "content": [
+          {
+            "type": "text",
+            "text": "Based on the repositories listed for the Kilo-Org organization, here's what I found:\n\n## All 26 Repositories:\n\n1. **cloud** - TypeScript\n2. **kilocode** - AI coding agent (TypeScript)\n3. **kilocode-legacy** - Legacy version of Kilo (TypeScript)\n4. **security-agent-testbed** - Vulnerable dependencies testing (Shell)\n5. **homebrew-tap** - Homebrew tap (Ruby)\n6. **kilo-marketplace** - Marketplace (Python)\n7. **willitclaw.com** - Website (Astro)\n8. **agentic-path** - Agentic engineering guides (Astro)\n9. **kilo** - Archived AI coding platform (TypeScript)\n10. **aws-bedrock-o11y** - Bedrock monitoring (TypeScript)\n11. **community-model-insights** - Model insights (TypeScript)\n12. **lychee-action** - Link checker action (Shell)\n13. **alex-treBENCH** - LLM benchmarking (TypeScript)\n14. **focus-week-live-counter** - Counter (Python)\n15. **app-builder-db** - Database (TypeScript)\n16. **onboarding-slides** - Onboarding slides\n17. **HolidayCardTest** - Holiday card test (TypeScript)\n18. **KiloMan** - 2D platformer game (TypeScript)\n19. **MinimalContinueExtract** - TypeScript extraction (TypeScript)\n20. **AutocompleteNextEditPoc** - AI autocomplete POC (TypeScript)\n21. **ai-101-ts** - AI workshop sample (TypeScript)\n22. **kilo-vibe-demos** - Vibe-coded projects (TypeScript)\n23. **docs** - Documentation (TypeScript, archived)\n24. **share.kilo.love** - Website (Astro)\n25. **kilo-dev-mcp-server** - MCP dev tools (TypeScript, archived)\n26. **Roo-Code-Types** - Type definitions (JavaScript)\n\n## Repositories Related to Gateway/Proxy/API/Model Routing:\n\n**No repositories** in this organization appear to be directly related to **gateway**, **proxy**, **API**, or **model routing** based on their names and descriptions.\n\nThe closest matches related to AI/model infrastructure are:\n- **aws-bedrock-o11y** - Monitors Amazon Bedrock quota usage (TPM/RPM)\n- **community-model-insights** - Model insights repository\n- **alex-treBENCH** - LLM benchmarking with Jeopardy questions\n- **kilo-dev-mcp-server** - MCP (Model Context Protocol) tools for development\n\nHowever, none of these are specifically gateway, proxy, or model routing solutions."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_147b1cf630e64c8b81d1f306",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"prompt\":\"Find detailed information about Kilo Gateway - what it is, how it works as a model gateway/proxy, its features, architecture, configuration, and any source code repositories. Look for documentation, README files, or technical details.\",\"url\":\"https://github.com/ANXKHN/free-kilo-gateway\"}"
+            }
+          }
+        ],
+        "reasoning_content": "The KILO-ORG organization doesn't seem to have a gateway repository. The \"kilo.ai gateway\" that the user is asking about might be a different service. Let me search more specifically for \"kilo gateway\" as a model gateway service, or try to find documentation about it."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_147b1cf630e64c8b81d1f306",
+        "content": [
+          {
+            "type": "text",
+            "text": "Based on the GitHub repository content, here's what I found about **Kilo Gateway**:\n\n## What is Kilo Gateway?\n\n**Kilo Gateway** is an AI model gateway/proxy service that provides access to various large language models, including a **free tier** of models. It acts as an intermediary layer between users/applications and multiple AI model providers.\n\n## Key Features\n\n| Feature | Description |\n|---------|-------------|\n| **Free Models** | Provides access to free LLMs including Z.AI GLM 5, Giga Potato, CoreThink, MiniMax M2.5, Kimi K2.5, and more |\n| **Large Context Windows** | Models supporting up to 256K context tokens |\n| **Vision Support** | Select models offer multimodal/vision capabilities |\n| **Auto-Updating** | Model availability updates dynamically |\n| **Zero Configuration** | Designed for easy integration with tools like OpenCode |\n\n## Available Free Models (as of March 4, 2026)\n\n| Model | Context | Output | Features |\n|-------|---------|--------|----------|\n| Kilo: Auto | 204K | 131K | Text only |\n| MiniMax M2.5 | 204K | 131K | Text only |\n| Kimi K2.5 | 262K | 65K | Vision support |\n| Giga Potato Thinking | 256K | 32K | Vision support |\n| Trinity Large Preview | 131K | - | Text only |\n| Free Models Router | 200K | - | Vision support |\n| Step 3.5 Flash | 256K | 256K | Text only |\n| CoreThink | 78K | 8K | Text only |\n\n## Architecture & Integration\n\nKilo Gateway integrates with **OpenCode** (an AI-powered CLI tool) as a provider. The repository `free-kilo-gateway` is a **patcher tool** that:\n\n1. Fetches available free models from Kilo Gateway API\n2. Updates OpenCode's configuration (`~/.config/opencode/opencode.json`)\n3. Adds the `kilogateway` provider with all available free models\n4. Automatically validates models via health checks\n\n## Usage Pattern\n\n```bash\n# After running the patcher\nopencode run \"your prompt\" --model=kilogateway/z-ai-glm-5-free\n```\n\n## Limitations of Available Information\n\n⚠️ **Note:** This repository is a **client-side patcher tool**, not the official Kilo Gateway source code. The actual Kilo Gateway service appears to be a separate, external service. This repository doesn't contain:\n\n- Kilo Gateway's source code\n- Technical architecture documentation\n- API specification details\n- Self-hosting instructions\n\n## Related Projects Mentioned\n\n- **OpenCode** — The AI-powered CLI that Kilo Gateway integrates with\n- **opencode-antigravity-auth** — Google Antigravity OAuth plugin\n\n---\n\n**To find more technical details about Kilo Gateway itself**, you may need to search for:\n- Official Kilo Gateway documentation\n- Kilo Gateway API documentation\n- The actual Kilo Gateway service/repository (separate from this patcher tool)\n\nWould you like me to search for additional information about Kilo Gateway from other sources?"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_507f01a7522f48a5a3f91f8a",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"prompt\":\"Find detailed technical information about Kilo Gateway - API endpoints, authentication, model routing logic, configuration options, architecture diagrams, or source code. How does it work as a model proxy?\",\"url\":\"https://github.com/ANGANSAMADDER/openkilo\"}"
+            }
+          }
+        ],
+        "reasoning_content": "Good progress! I found that Kilo Gateway is a model gateway/proxy service, but the repository I looked at is just a client-side patcher tool. Let me try to find more information about the actual Kilo Gateway service, its API, or official documentation. Let me check another related repository or search for more technical details."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_507f01a7522f48a5a3f91f8a",
+        "content": [
+          {
+            "type": "text",
+            "text": "Based on the repository content I found, here's the technical information about **Kilo Gateway**:\n\n## Kilo Gateway Overview\n\n**Kilo Gateway** is a free OpenRouter-compatible API gateway located at `api.kilo.ai` that provides access to 40+ free AI models without requiring authentication.\n\n### Key Technical Details\n\n| Aspect | Details |\n|--------|---------|\n| **Endpoint** | `api.kilo.ai` |\n| **Compatibility** | OpenRouter-compatible API |\n| **Free Models** | 40+ models available |\n| **Paid Models** | 350+ models (requires auth) |\n| **Auth for Free** | `apiKey: \"anonymous\"` |\n| **Auth for Paid** | OAuth browser flow or API key |\n\n### How It Works as a Model Proxy\n\n1. **Zero-Config Access**: Free models are accessible instantly with `apiKey: \"anonymous\"` - no registration required\n2. **Dual Authentication**: Supports both OAuth (browser-based) and API key authentication for paid tier\n3. **Model Routing**: Acts as a unified gateway routing requests to various model providers (DeepSeek, Meta Llama, Google Gemma, Qwen, MistralAI, MiniMax, Z.AI)\n4. **Caching**: Model registry is cached locally (`~/.cache/openkilo/gateway-models.json`) with auto-refresh on startup\n\n### Available Free Models (Sample)\n\n| Model | Context | Output | Description |\n|-------|---------|--------|-------------|\n| `z-ai/glm-5:free` | 202K | 131K | Z.AI's flagship model |\n| `deepseek/deepseek-r1-0528:free` | 164K | 164K | DeepSeek R1 reasoning |\n| `meta-llama/llama-3.3-70b-instruct:free` | 128K | 128K | Meta Llama 3.3 70B |\n| `qwen/qwen3-coder:free` | 262K | 262K | Qwen3 Coder 480B |\n| `google/gemma-3-27b-it:free` | 131K | 8K | Google Gemma 3 27B |\n\n### Configuration & Storage\n\n```\n~/.config/openkilo/auth.json     # Stored credentials\n~/.cache/openkilo/gateway-models.json  # Model registry cache\n```\n\n### Limitations of Available Information\n\n⚠️ **Note**: This repository (`openkilo`) is an **OpenCode plugin** that *consumes* Kilo Gateway - it's not the gateway's source code itself. The repository doesn't contain:\n- Kilo Gateway's source code\n- Detailed API endpoint specifications\n- Architecture diagrams\n- Model routing logic implementation\n\nFor deeper technical details about Kilo Gateway's internal architecture, you would need to check Kilo's official documentation or contact Kilo directly."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_80efe5eeb57a47ed9d2102c1",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"prompt\":\"Find all technical details about Kilo Gateway API - endpoints, request/response formats, authentication methods, model routing configuration, rate limits, and any implementation details.\",\"url\":\"https://github.com/ANG-OR-FIVE/opencode-kilo-free-provider\"}"
+            }
+          }
+        ],
+        "reasoning_content": "Good, I'm getting more information. Kilo Gateway is at `api.kilo.ai` and is OpenRouter-compatible. Let me try to find more technical details about the API or potentially find the actual source code. Let me check another repository or try to access the API documentation."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_80efe5eeb57a47ed9d2102c1",
+        "content": [
+          {
+            "type": "text",
+            "text": "Based on the GitHub repository content provided, I can share what's documented about the Kilo Gateway integration, but I should note that **this repository is an installer/wrapper for Opencode** - it doesn't contain the full Kilo Gateway API specification. Here's what I found:\n\n## Kilo Gateway Free Provider - Available Technical Details\n\n### Model Gateway Access\nThe provider connects to **Kilo AI's free model gateway**, which serves as a router for free-tier models.\n\n### Available Free Models (via Kilo Gateway)\n| Model ID | Display Name |\n|----------|--------------|\n| `minimax/minimax-m2.5:free` | MiniMax M2.5 |\n| `z-ai/glm-5:free` | GLM 5 |\n| `arcee-ai/trinity-large-preview:free` | Trinity Large Preview |\n| `corethink:free` | CoreThink |\n| `giga-potato` | Giga Potato |\n| `giga-potato-thinking` | Giga Potato Thinking |\n| `openrouter/free` | Free Models Router |\n| `qwen/qwen3-235b-a22b-thinking-2507` | Qwen3 235B A22B Thinking |\n| `qwen/qwen3-vl-235b-a22b-thinking` | Qwen3 VL 235B A22B Thinking |\n| `stepfun/step-3.5-flash:free` | Step 3.5 Flash |\n\n### Free Model Identification Strategy\nThe gateway identifies free models using two filters:\n1. **`:free` suffix** - Models where ID ends with `:free`\n2. **Zero pricing** - Models where `pricing.prompt == \"0\"` AND `pricing.completion == \"0\"`\n\n### Configuration Format\nModels are configured in `opencode.json` under a `provider.kilo-gateway-free` block (see `example-config.json` in the repo for exact structure).\n\n### Config File Location\n| Platform | Path |\n|----------|------|\n| Windows | `%USERPROFILE%\\.config\\opencode\\opencode.json` |\n| macOS/Linux | `~/.config/opencode/opencode.json` |\n\n---\n\n## ⚠️ Missing API Documentation\n\nThe repository **does not contain** the following details you requested:\n- **Endpoint URLs** for the Kilo Gateway API\n- **Request/Response formats** (JSON schemas)\n- **Authentication methods** (API keys, tokens, etc.)\n- **Rate limits**\n- **Low-level implementation details**\n\n### Recommendation\nTo get the complete Kilo Gateway API specification, you would need to:\n1. Check the **official Kilo AI documentation**\n2. Examine the actual provider implementation code (if available elsewhere)\n3. Look at the `example-config.json` file in the repository for configuration structure\n\nWould you like me to search for additional Kilo AI API documentation from other sources?"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_2febbd25a7bd429fa0a8e8b1",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"prompt\":\"Find all information about Kilo Gateway or Kilo AI API - documentation, API reference, how to use it, endpoints, authentication, model routing, and any links to source code or technical documentation.\",\"url\":\"https://github.com/JUNGHOONGHAE/opencode-kilo-auth\"}"
+            }
+          }
+        ],
+        "reasoning_content": "I'm getting good information about Kilo Gateway but still haven't found the actual source code. Let me try to search for the official Kilo AI documentation or API docs, or try to find if there's an open-source gateway implementation."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_2febbd25a7bd429fa0a8e8b1",
+        "content": [
+          {
+            "type": "text",
+            "text": "Based on the GitHub repository content I found, here's what I can tell you about **Kilo Gateway**:\n\n## Overview\n\n**Kilo Gateway** is an AI model gateway service by Kilo.ai that provides access to **342+ AI models**, including **29 free tier options**.\n\n## Key Information from Available Sources\n\n### Links to Documentation & Resources\n| Resource | Link |\n|----------|------|\n| Kilo Gateway (Official) | [kilo.ai](https://kilo.ai) |\n| OpenCode Plugin (npm) | [npmjs.com/package/opencode-kilo-auth](https://www.npmjs.com/package/opencode-kilo-auth) |\n| GitHub Repository | [github.com/JungHoonGhae/opencode-kilo-auth](https://github.com/JungHoonGhae/opencode-kilo-auth) |\n\n### What the Plugin Reveals About Kilo Gateway\n\nThe repository is for an **OpenCode plugin** that integrates Kilo Gateway as a provider. Key details:\n\n- **Model Count**: 342+ AI models accessible through the gateway\n- **Free Tier**: 29 free models available (including GLM 5)\n- **Authentication**: Requires auth credentials (handled via the `opencode-kilo-auth` package)\n- **Integration**: Works with OpenCode (a CLI AI coding tool)\n\n### Installation (via OpenCode Plugin)\n```json\n{\n  \"plugin\": [\"opencode-kilo-auth@latest\"]\n}\n```\n\n## Limitations of Available Information\n\n⚠️ **Important**: The fetched content is from a **community plugin repository**, not the official Kilo Gateway documentation. This means:\n\n- ❌ No API endpoint documentation\n- ❌ No authentication method details\n- ❌ No model routing configuration\n- ❌ No API reference or request/response formats\n\n## Recommendation\n\nFor complete API documentation, authentication details, and endpoint specifications, you'll need to visit the **official Kilo Gateway site**: **https://kilo.ai**\n\nWould you like me to search for additional official Kilo Gateway documentation or API references?"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_afd8a9587c99440e8613fffe",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"prompt\":\"Find all information about Kilo Gateway, Kilo AI API, model gateway, proxy service - documentation, API reference, how it works, architecture, endpoints, authentication, model routing, configuration, and any technical details or source code links.\",\"url\":\"https://kilo.ai\"}"
+            }
+          }
+        ],
+        "reasoning_content": "Let me try to fetch directly from the kilo.ai website to get official documentation about their gateway/API."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_afd8a9587c99440e8613fffe",
+        "content": [
+          {
+            "type": "text",
+            "text": "Based on the content from kilo.ai, I need to clarify an important distinction: **Kilo Gateway** is a feature of **Kilo Code** (an open-source AI coding agent), not a standalone \"Kilo AI API\" product. Here's what I found:\n\n## Kilo Gateway\n\n**Purpose:** One API to access all AI models through a single unified endpoint.\n\n**Key Features:**\n- Route requests to **500+ models** from every major provider\n- Choose from **60+ providers**\n- Pay exact list price from Anthropic, OpenAI, and Google (no commission or hidden fees)\n- Pay-as-you-go (no subscriptions, no rate limits, no daily reset waits)\n- Optional Kilo Pass for up to 50% bonus credits\n\n**Supported Alternatives:**\n- Other gateways (OpenRouter, Vercel, Requesty)\n- Managed services (AWS Bedrock, Azure OpenAI, Google AI Studio)\n- Local models (Ollama, LM Studio)\n- Bring your own API keys (BYOK)\n\n## Kilo Code Overview\n\n**What it is:** An open-source AI coding agent (Apache-2.0 licensed) with 1.5M+ users and 25T+ tokens processed.\n\n**Architecture/Integrations:**\n- **IDEs:** VS Code, JetBrains (IntelliJ IDEA, PyCharm, WebStorm)\n- **CLI:** Terminal-based usage\n- **Cloud:** Cloud Agents, Slack integration\n- **Features:** Code Reviewer, App Builder, Memory Bank, Auto Model routing, Sessions\n\n**Key Technical Features:**\n- **Auto Model:** Smart model routing based on current mode\n- **Managed Indexing:** Semantic codebase understanding\n- **Agent Manager:** Run multiple AI agents in IDE\n- **MCP Marketplace:** Add tools like Context7 for documentation lookup\n- **Automatic Failure Recovery:** Detects errors and recovers on failure\n\n## Documentation Links\n\nThe site references several documentation pages (marked as \"View Documentation\" or \"Learn more →\"):\n- Gateway documentation\n- Cloud Agents documentation\n- Code Reviews documentation\n- Managed Indexing documentation\n- Agent Manager documentation\n- Sessions documentation\n- Auto Model documentation\n- Skills documentation\n\n**Official Resources:**\n- GitHub: Available (open source)\n- Discord: Community support\n- Documentation: Available via \"Docs\" link\n- Blog: Available for updates\n\n**Note:** The actual detailed API reference, endpoint specifications, and authentication documentation would be found at the linked \"Docs\" pages, which aren't included in the homepage content I retrieved."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_99be41d0b37e4a37a2897300",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"prompt\":\"Find all documentation about Kilo Gateway - API endpoints, authentication, model routing configuration, architecture, how to use it, request/response formats, rate limits, pricing, and any technical implementation details.\",\"url\":\"https://docs.kilo.ai\"}"
+            }
+          }
+        ],
+        "reasoning_content": "Good, I found that Kilo Gateway is part of Kilo Code. Let me try to find the actual documentation or source code for the gateway component. Let me try to access the docs or find the gateway source code."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_99be41d0b37e4a37a2897300",
+        "content": [
+          {
+            "type": "text",
+            "text": "Error during fetch for https://docs.kilo.ai: This operation was aborted"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_c3b3e89c87d2492ab93d2b1d",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"prompt\":\"Find all repositories and look for any gateway, proxy, API routing, or model-related code. List repository names, URLs, and descriptions that relate to model gateway or API proxy functionality.\",\"url\":\"https://github.com/kilo-org\"}"
+            }
+          }
+        ],
+        "reasoning_content": "The docs site didn't load. Let me try to find the Kilo Code source code repository and look for gateway-related code there."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_c3b3e89c87d2492ab93d2b1d",
+        "content": [
+          {
+            "type": "text",
+            "text": "Based on the repository listing from Kilo-Org, I'll identify repositories related to gateway, proxy, API routing, or model-related functionality.\n\n## Analysis of Kilo-Org Repositories\n\nAfter reviewing all 26 repositories from the Kilo-Org organization, here are the findings:\n\n### Direct Matches for Gateway/Proxy/API/Model Functionality\n\n**No repositories were found** with explicit gateway, proxy, or API routing functionality in their names or descriptions.\n\n### Related AI/Model Infrastructure Repositories\n\n| Repository | URL | Description | Relevance |\n|------------|-----|-------------|-----------|\n| **kilocode** | https://github.com/Kilo-Org/kilocode | Kilo is the all-in-one agentic engineering platform. Build, ship, and iterate faster with the most popular open source coding agent. #1 on OpenRouter. 1.5M+ Kilo Coders. 25T+ tokens processed | ⭐ High - Mentions OpenRouter (AI model routing platform) and token processing |\n| **kilo** (archived) | https://github.com/Kilo-Org/kilo | Same as kilocode - predecessor repository | ⭐ High - Same as above |\n| **aws-bedrock-o11y** | https://github.com/Kilo-Org/aws-bedrock-o11y | CloudWatch Dashboard to monitor real-time TPM/RPM Amazon Bedrock quota usage to limits | ⚡ Medium - AWS Bedrock is a model gateway/service; this monitors API quotas |\n| **kilo-marketplace** | https://github.com/Kilo-Org/kilo-marketplace | Kilo Marketplace | ⚡ Low - May contain API integrations for marketplace functionality |\n\n### Key Observations\n\n1. **OpenRouter Integration**: The main `kilocode` repository mentions being \"#1 on OpenRouter\" - OpenRouter is an AI model gateway that routes requests to different LLM providers.\n\n2. **Model API Monitoring**: `aws-bedrock-o11y` tracks TPM (tokens per minute) and RPM (requests per minute) for Amazon Bedrock, which is AWS's model gateway service.\n\n3. **No Dedicated Gateway/Proxy**: There doesn't appear to be a dedicated model gateway or API proxy repository in this organization. The AI/model functionality appears to be embedded within the main `kilocode` application rather than separated into a gateway service.\n\n### Recommendation\n\nTo find actual gateway/proxy code, you would need to examine the source code of:\n- **kilocode** - Look for API routing, model provider integrations, or OpenRouter-related code\n- **aws-bedrock-o11y** - Contains Bedrock API monitoring logic"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_f328ea94d44c492a84f1f355",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"prompt\":\"Find all information about Kilo Gateway implementation - look for gateway, proxy, API routing, model provider integration, OpenRouter, API endpoints, authentication, model routing logic, configuration files, or any code that handles routing requests to different AI model providers. Search README, documentation, or code files.\",\"url\":\"https://github.com/KILO-ORG/kilocode\"}"
+            }
+          }
+        ],
+        "reasoning_content": "Let me try to fetch the kilocode repository to see if there's gateway-related code there."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_f328ea94d44c492a84f1f355",
+        "content": [
+          {
+            "type": "text",
+            "text": "Based on the GitHub page content you've provided, this is just the GitHub interface/navigation for the KiloCode repository, not the actual code content. To find information about Kilo Gateway implementation, I need to search the actual codebase.\n\nLet me search the local project for gateway-related code:\n\n<tool_call>\n<function=glob>\n<parameter=pattern>\n**/*gateway*\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=glob>\n<parameter=pattern>\n**/*proxy*\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=glob>\n<parameter=pattern>\n**/*route*\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=glob>\n<parameter=pattern>\n**/README*\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=glob>\n<parameter=pattern>\n**/*config*\n</parameter>\n</function>\n</tool_call>"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_d267b431c94a490a81e69004",
+            "type": "function",
+            "function": {
+              "name": "web_fetch",
+              "arguments": "{\"prompt\":\"Extract the complete README content including all documentation about Kilo Gateway, API integration, model providers, OpenRouter, authentication, configuration, and any technical details about how Kilo handles model routing and API proxying.\",\"url\":\"https://raw.githubusercontent.com/KILO-ORG/kilocode/main/README.md\"}"
+            }
+          }
+        ],
+        "reasoning_content": "The web_fetch tool tried to execute local glob commands which won't work. Let me try a different approach - let me search the web for more specific information about Kilo Gateway API or try to access the kilocode repository README directly."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_d267b431c94a490a81e69004",
+        "content": [
+          {
+            "type": "text",
+            "text": "# Kilo Gateway - Complete README Documentation\n\n## Overview\n\n**Kilo** is an all-in-one agentic engineering platform designed to help developers build, ship, and iterate faster. It is the #1 ranked tool on OpenRouter with:\n- 1.5M+ Kilo Coders\n- 25T+ tokens processed\n\n## Core Capabilities\n\n| Feature | Description |\n|---------|-------------|\n| ✨ | Generate code from natural language |\n| ✅ | Checks its own work |\n| 🧪 | Run terminal commands |\n| 🌐 | Automate the browser |\n| ⚡ | Inline autocomplete suggestions |\n| 🤖 | Latest AI models support |\n| 🎁 | API keys optional |\n| 💡 | $20 bonus credits on first top-up |\n\n## Supported Models\n\nCredits work with **500+ models** including:\n- Gemini 3.1 Pro\n- Claude 4.6 Sonnet & Opus\n- GPT-5.2\n\nTransparent pricing matches provider rates exactly.\n\n---\n\n## Key Features\n\n1. **Code Generation** – Generate code using natural language\n2. **Inline Autocomplete** – AI-powered intelligent code completions as you type\n3. **Task Automation** – Automate repetitive coding tasks\n4. **Automated Refactoring** – Refactor and improve existing code efficiently\n5. **MCP Server Marketplace** – Find and use MCP servers to extend agent capabilities\n6. **Multi Mode** – Plan with Architect, Code with Coder, Debug with Debugger, and create custom modes\n\n---\n\n## Installation & Setup\n\n### Visual Studio Code\n\n1. Install from [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=kilocode.Kilo-Code)\n2. Create your account to access 500+ AI models\n3. Start coding with AI that adapts to your workflow\n\n### CLI Installation\n\n```bash\n# Using npm\nnpm install -g @kilocode/cli\n\n# Or run directly with npx\nnpx @kilocode/cli\n```\n\nThen run `kilo` in any project directory to start.\n\n#### ⚠️ npm Install Note: Hidden `.kilo` File\n\nOn some systems/npm versions, installing `@kilocode/cli` may create a hidden `.kilo` file near the installed `kilo` command:\n\n- **Why it exists:** npm may create helper artifacts while wiring CLI executables\n- **Size:** Varies by platform, npm version, and install mode (symlink vs copied launcher)\n- **Safety:** Safe to leave in place; do not edit manually\n- **Removal:** Use `npm uninstall -g @kilocode/cli` to remove install artifacts cleanly\n\n---\n\n## Autonomous Mode (CI/CD)\n\nUse the `--auto` flag with `kilo run` for fully autonomous operation without user interaction:\n\n```bash\nkilo run --auto \"run tests and fix any failures\"\n```\n\n**⚠️ Important:** The `--auto` flag disables all permission prompts and allows the agent to execute any action without confirmation. Only use this in trusted environments like CI/CD pipelines.\n\n---\n\n## Quick Links\n\n| Resource | URL |\n|----------|-----|\n| VS Code Marketplace | https://kilo.ai/vscode-marketplace |\n| Official Home Page | https://kilo.ai |\n| YouTube Quick-Start Guide | https://youtu.be/pqGfYXgrhig |\n\n---\n\n## Contributing & Community\n\n- **Contributing Guide:** [/CONTRIBUTING.md](/CONTRIBUTING.md) – Setup, coding standards, contribution types, and PR submission\n- **Release Process:** [RELEASING.md](RELEASING.md)\n- **Code of Conduct:** [/CODE_OF_CONDUCT.md](/CODE_OF_CONDUCT.md) – Respect, inclusivity, and collaboration expectations\n- **License:** MIT License – Free to use, modify, and distribute (including commercially) with proper attribution\n\n---\n\n## Origin\n\n**Kilo CLI** is a fork of [OpenCode](https://github.com/anomalyco/opencode), enhanced to work within the Kilo agentic engineering platform.\n\n---\n\n## Notes on API Integration & Authentication\n\nBased on the README content provided:\n\n- **API Keys:** Optional (users can use Kilo credits instead)\n- **Authentication:** Account creation required to access models\n- **Credits System:** $20 bonus on first top-up; credits work across 500+ models\n- **Pricing:** Transparent, matches provider rates exactly\n\n> ⚠️ The provided README does not contain detailed technical documentation about Kilo's internal model routing architecture, API proxying implementation, or OpenRouter integration specifics. For deeper technical details on those topics, you may need to consult additional documentation or the source code repository."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_58ee4bc5f50741c38ded43f9",
+            "type": "function",
+            "function": {
+              "name": "web_search",
+              "arguments": "{\"query\":\"kilo.ai gateway api.kilo.ai OpenRouter API documentation\"}"
+            }
+          }
+        ],
+        "reasoning_content": "Good, I found that Kilo is built on top of OpenCode. Let me search for more specific information about Kilo Gateway's API or try to find the actual gateway implementation. Let me also check if there's a separate gateway repository or look for OpenRouter integration details."
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_58ee4bc5f50741c38ded43f9",
+        "content": [
+          {
+            "type": "text",
+            "text": "Error during web search: [DashScope] Search failed: API error: 429 Too Many Requests - {\"errorType\":\"THROTTLING.userQPSLimit\",\"rid\":\"6f1cc977-893c-4cad-88a9-41e40aeb2ac7\",\"message\":null,\"status\":429}"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "skill",
+          "description": "Execute a skill within the main conversation\n\n<skills_instructions>\nWhen users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge.\n\nHow to invoke:\n- Use this tool with the skill name only (no arguments)\n- Examples:\n  - `skill: \"pdf\"` - invoke the pdf skill\n  - `skill: \"xlsx\"` - invoke the xlsx skill\n  - `skill: \"ms-office-suite:pdf\"` - invoke using fully qualified name\n\nImportant:\n- When a skill is relevant, you must invoke this tool IMMEDIATELY as your first action\n- NEVER just announce or mention a skill in your text response without actually calling this tool\n- This is a BLOCKING REQUIREMENT: invoke the relevant Skill tool BEFORE generating any other response about the task\n- Only use skills listed in <available_skills> below\n- Do not invoke a skill that is already running\n- Do not use this tool for built-in CLI commands (like /help, /clear, etc.)\n- When executing scripts or loading referenced files, ALWAYS resolve absolute paths from skill's base directory. Examples:\n  - `bash scripts/init.sh` -> `bash /path/to/skill/scripts/init.sh`\n  - `python scripts/helper.py` -> `python /path/to/skill/scripts/helper.py`\n  - `reference.md` -> `/path/to/skill/reference.md`\n</skills_instructions>\n\n<available_skills>\nNo skills are currently configured. Skills can be created by adding directories with SKILL.md files to .qwen/skills/ or ~/.qwen/skills/.\n</available_skills>\n",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "skill": {
+                "type": "string",
+                "description": "The skill name (no arguments). E.g., \"pdf\" or \"xlsx\""
+              }
+            },
+            "required": [
+              "skill"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "list_directory",
+          "description": "Lists the names of files and subdirectories directly within a specified directory path. Can optionally ignore entries matching provided glob patterns.",
+          "parameters": {
+            "properties": {
+              "path": {
+                "description": "The absolute path to the directory to list (must be absolute, not relative)",
+                "type": "string"
+              },
+              "ignore": {
+                "description": "List of glob patterns to ignore",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "file_filtering_options": {
+                "description": "Optional: Whether to respect ignore patterns from .gitignore or .qwenignore",
+                "type": "object",
+                "properties": {
+                  "respect_git_ignore": {
+                    "description": "Optional: Whether to respect .gitignore patterns when listing files. Only available in git repositories. Defaults to true.",
+                    "type": "boolean"
+                  },
+                  "respect_qwen_ignore": {
+                    "description": "Optional: Whether to respect .qwenignore patterns when listing files. Defaults to true.",
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Reads and returns the content of a specified file. If the file is large, the content will be truncated. The tool's response will clearly indicate if truncation has occurred and will provide details on how to read more of the file using the 'offset' and 'limit' parameters. Handles text, images (PNG, JPG, GIF, WEBP, SVG, BMP), and PDF files. For text files, it can read specific line ranges.",
+          "parameters": {
+            "properties": {
+              "absolute_path": {
+                "description": "The absolute path to the file to read (e.g., '/home/user/project/file.txt'). Relative paths are not supported. You must provide an absolute path.",
+                "type": "string"
+              },
+              "offset": {
+                "description": "Optional: For text files, the 0-based line number to start reading from. Requires 'limit' to be set. Use for paginating through large files.",
+                "type": "number"
+              },
+              "limit": {
+                "description": "Optional: For text files, maximum number of lines to read. Use with 'offset' to paginate through large files. If omitted, reads the entire file (if feasible, up to a default limit).",
+                "type": "number"
+              }
+            },
+            "required": [
+              "absolute_path"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep_search",
+          "description": "A powerful search tool for finding patterns in files\n\n  Usage:\n  - ALWAYS use Grep for search tasks. NEVER invoke `grep` or `rg` as a Bash command. The Grep tool has been optimized for correct permissions and access.\n  - Supports full regex syntax (e.g., \"log.*Error\", \"function\\s+\\w+\")\n  - Filter files with glob parameter (e.g., \"*.js\", \"**/*.tsx\")\n  - Case-insensitive by default\n  - Use Task tool for open-ended searches requiring multiple rounds\n",
+          "parameters": {
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "description": "The regular expression pattern to search for in file contents"
+              },
+              "glob": {
+                "type": "string",
+                "description": "Glob pattern to filter files (e.g. \"*.js\", \"*.{ts,tsx}\")"
+              },
+              "path": {
+                "type": "string",
+                "description": "File or directory to search in. Defaults to current working directory."
+              },
+              "limit": {
+                "type": "number",
+                "description": "Limit output to first N matching lines. Optional - shows all matches if not specified."
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "glob",
+          "description": "Fast file pattern matching tool that works with any codebase size\n- Supports glob patterns like \"**/*.js\" or \"src/**/*.ts\"\n- Returns matching file paths sorted by modification time\n- Use this tool when you need to find files by name patterns\n- When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Agent tool instead\n- You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.",
+          "parameters": {
+            "properties": {
+              "pattern": {
+                "description": "The glob pattern to match files against",
+                "type": "string"
+              },
+              "path": {
+                "description": "The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter \"undefined\" or \"null\" - simply omit it for the default behavior. Must be a valid directory path if provided.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "edit",
+          "description": "Replaces text within a file. By default, replaces a single occurrence. Set `replace_all` to true when you intend to modify every instance of `old_string`. This tool requires providing significant context around the change to ensure precise targeting. Always use the read_file tool to examine the file's current content before attempting a text replacement.\n\n      The user has the ability to modify the `new_string` content. If modified, this will be stated in the response.\n\nExpectation for required parameters:\n1. `file_path` MUST be an absolute path; otherwise an error will be thrown.\n2. `old_string` MUST be the exact literal text to replace (including all whitespace, indentation, newlines, and surrounding code etc.).\n3. `new_string` MUST be the exact literal text to replace `old_string` with (also including all whitespace, indentation, newlines, and surrounding code etc.). Ensure the resulting code is correct and idiomatic.\n4. NEVER escape `old_string` or `new_string`, that would break the exact literal text requirement.\n**Important:** If ANY of the above are not satisfied, the tool will fail. CRITICAL for `old_string`: Must uniquely identify the single instance to change. Include at least 3 lines of context BEFORE and AFTER the target text, matching whitespace and indentation precisely. If this string matches multiple locations, or does not match exactly, the tool will fail.\n**Multiple replacements:** Set `replace_all` to true when you want to replace every occurrence that matches `old_string`.",
+          "parameters": {
+            "properties": {
+              "file_path": {
+                "description": "The absolute path to the file to modify. Must start with '/'.",
+                "type": "string"
+              },
+              "old_string": {
+                "description": "The exact literal text to replace, preferably unescaped. For single replacements (default), include at least 3 lines of context BEFORE and AFTER the target text, matching whitespace and indentation precisely. If this string is not the exact literal text (i.e. you escaped it) or does not match exactly, the tool will fail.",
+                "type": "string"
+              },
+              "new_string": {
+                "description": "The exact literal text to replace `old_string` with, preferably unescaped. Provide the EXACT text. Ensure the resulting code is correct and idiomatic.",
+                "type": "string"
+              },
+              "replace_all": {
+                "type": "boolean",
+                "description": "Replace all occurrences of old_string (default false)."
+              }
+            },
+            "required": [
+              "file_path",
+              "old_string",
+              "new_string"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "write_file",
+          "description": "Writes content to a specified file in the local filesystem.\n\n      The user has the ability to modify `content`. If modified, this will be stated in the response.",
+          "parameters": {
+            "properties": {
+              "file_path": {
+                "description": "The absolute path to the file to write to (e.g., '/home/user/project/file.txt'). Relative paths are not supported.",
+                "type": "string"
+              },
+              "content": {
+                "description": "The content to write to the file.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "file_path",
+              "content"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "run_shell_command",
+          "description": "Executes a given shell command (as `bash -c <command>`) in a persistent shell session with optional timeout, ensuring proper handling and security measures.\n\nIMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.\n\n**Usage notes**:\n- The command argument is required.\n- You can specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). If not specified, commands will timeout after 120000ms (2 minutes).\n- It is very helpful if you write a clear, concise description of what this command does in 5-10 words.\n\n- Avoid using run_shell_command with the `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or when these commands are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:\n  - File search: Use glob (NOT find or ls)\n  - Content search: Use grep_search (NOT grep or rg)\n  - Read files: Use read_file (NOT cat/head/tail)\n  - Edit files: Use edit (NOT sed/awk)\n  - Write files: Use write_file (NOT echo >/cat <<EOF)\n  - Communication: Output text directly (NOT echo/printf)\n- When issuing multiple commands:\n  - If the commands are independent and can run in parallel, make multiple run_shell_command tool calls in a single message. For example, if you need to run \"git status\" and \"git diff\", send a single message with two run_shell_command tool calls in parallel.\n  - If the commands depend on each other and must run sequentially, use a single run_shell_command call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`). For instance, if one operation must complete before another starts (like mkdir before cp, Write before run_shell_command for git operations, or git add before git commit), run these operations sequentially instead.\n  - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail\n  - DO NOT use newlines to separate commands (newlines are ok in quoted strings)\n- Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the User explicitly requests it.\n  <good-example>\n  pytest /foo/bar/tests\n  </good-example>\n  <bad-example>\n  cd /foo/bar && pytest tests\n  </bad-example>\n\n**Background vs Foreground Execution:**\n- You should decide whether commands should run in background or foreground based on their nature:\n- Use background execution (is_background: true) for:\n  - Long-running development servers: `npm run start`, `npm run dev`, `yarn dev`, `bun run start`\n  - Build watchers: `npm run watch`, `webpack --watch`\n  - Database servers: `mongod`, `mysql`, `redis-server`\n  - Web servers: `python -m http.server`, `php -S localhost:8000`\n  - Any command expected to run indefinitely until manually stopped\n\n  - Command is executed as a subprocess that leads its own process group. Command process group can be terminated as `kill -- -PGID` or signaled as `kill -s SIGNAL -- -PGID`.\n- Use foreground execution (is_background: false) for:\n  - One-time commands: `ls`, `cat`, `grep`\n  - Build commands: `npm run build`, `make`\n  - Installation commands: `npm install`, `pip install`\n  - Git operations: `git commit`, `git push`\n  - Test runs: `npm test`, `pytest`\n",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "Exact bash command to execute as `bash -c <command>`\n*** WARNING: Command substitution using $(), `` ` ``, <(), or >() is not allowed for security reasons."
+              },
+              "is_background": {
+                "type": "boolean",
+                "description": "Optional: Whether to run the command in background. If not specified, defaults to false (foreground execution). Explicitly set to true for long-running processes like development servers, watchers, or daemons that should continue running without blocking further commands."
+              },
+              "timeout": {
+                "type": "number",
+                "description": "Optional timeout in milliseconds (max 600000)"
+              },
+              "description": {
+                "type": "string",
+                "description": "Brief description of the command for the user. Be specific and concise. Ideally a single sentence. Can be up to 3 sentences for clarity. No line breaks."
+              },
+              "directory": {
+                "type": "string",
+                "description": "(OPTIONAL) The absolute path of the directory to run the command in. If not provided, the project root directory is used. Must be a directory within the workspace and must already exist."
+              }
+            },
+            "required": [
+              "command"
+            ]
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "save_memory",
+          "description": "\nSaves a specific piece of information or fact to your long-term memory.\n\nUse this tool:\n\n- When the user explicitly asks you to remember something (e.g., \"Remember that I like pineapple on pizza\", \"Please save this: my cat's name is Whiskers\").\n- When the user states a clear, concise fact about themselves, their preferences, or their environment that seems important for you to retain for future interactions to provide a more personalized and effective assistance.\n\nDo NOT use this tool:\n\n- To remember conversational context that is only relevant for the current session.\n- To save long, complex, or rambling pieces of text. The fact should be relatively short and to the point.\n- If you are unsure whether the information is a fact worth remembering long-term. If in doubt, you can ask the user, \"Should I remember that for you?\"\n\n## Parameters\n\n- `fact` (string, required): The specific fact or piece of information to remember. This should be a clear, self-contained statement. For example, if the user says \"My favorite color is blue\", the fact would be \"My favorite color is blue\".\n- `scope` (string, optional): Where to save the memory:\n  - \"global\": Saves to user-level ~/.qwen/QWEN.md (shared across all projects)\n  - \"project\": Saves to current project's QWEN.md (project-specific)\n  - If not specified, the tool will ask the user where they want to save the memory.\n",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "fact": {
+                "type": "string",
+                "description": "The specific fact or piece of information to remember. Should be a clear, self-contained statement."
+              },
+              "scope": {
+                "type": "string",
+                "description": "Where to save the memory: \"global\" saves to user-level ~/.qwen/QWEN.md (shared across all projects), \"project\" saves to current project's QWEN.md (project-specific). If not specified, will prompt user to choose.",
+                "enum": [
+                  "global",
+                  "project"
+                ]
+              }
+            },
+            "required": [
+              "fact"
+            ]
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "todo_write",
+          "description": "\nUse this tool to create and manage a structured task list for your current coding session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user.\nIt also helps the user understand the progress of the task and overall progress of their requests.\n\n## When to Use This Tool\nUse this tool proactively in these scenarios:\n\n1. Complex multi-step tasks - When a task requires 3 or more distinct steps or actions\n2. Non-trivial and complex tasks - Tasks that require careful planning or multiple operations\n3. User explicitly requests todo list - When the user directly asks you to use the todo list\n4. User provides multiple tasks - When users provide a list of things to be done (numbered or comma-separated)\n5. After receiving new instructions - Immediately capture user requirements as todos\n6. When you start working on a task - Mark it as in_progress BEFORE beginning work. Ideally you should only have one todo as in_progress at a time\n7. After completing a task - Mark it as completed and add any new follow-up tasks discovered during implementation\n\n## When NOT to Use This Tool\n\nSkip using this tool when:\n1. There is only a single, straightforward task\n2. The task is trivial and tracking it provides no organizational benefit\n3. The task can be completed in less than 3 trivial steps\n4. The task is purely conversational or informational\n\nNOTE that you should not use this tool if there is only one trivial task to do. In this case you are better off just doing the task directly.\n\n## Examples of When to Use the Todo List\n\n<example>\nUser: I want to add a dark mode toggle to the application settings. Make sure you run the tests and build when you're done!\nAssistant: I'll help add a dark mode toggle to your application settings. Let me create a todo list to track this implementation.\n*Creates todo list with the following items:*\n1. Create dark mode toggle component in Settings page\n2. Add dark mode state management (context/store)\n3. Implement CSS-in-JS styles for dark theme\n4. Update existing components to support theme switching\n5. Run tests and build process, addressing any failures or errors that occur\n*Begins working on the first task*\n\n<reasoning>\nThe assistant used the todo list because:\n1. Adding dark mode is a multi-step feature requiring UI, state management, and styling changes\n2. The user explicitly requested tests and build be run afterward\n3. The assistant inferred that tests and build need to pass by adding \"Ensure tests and build succeed\" as the final task\n</reasoning>\n</example>\n\n<example>\nUser: Help me rename the function getCwd to getCurrentWorkingDirectory across my project\nAssistant: Let me first search through your codebase to find all occurrences of 'getCwd'.\n*Uses grep or search tools to locate all instances of getCwd in the codebase*\nAssistant: I've found 15 instances of 'getCwd' across 8 different files. Let me create a todo list to track these changes.\n*Creates todo list with specific items for each file that needs updating*\n\n<reasoning>\nThe assistant used the todo list because:\n1. First, the assistant searched to understand the scope of the task\n2. Upon finding multiple occurrences across different files, it determined this was a complex task with multiple steps\n3. The todo list helps ensure every instance is tracked and updated systematically\n4. This approach prevents missing any occurrences and maintains code consistency\n</reasoning>\n</example>\n\n\n<example>\nUser: I need to implement these features for my e-commerce site: user registration, product catalog, shopping cart, and checkout flow.\nAssistant: I'll help implement these features. First, let's add all the features to the todo list.\n*Creates a todo list breaking down each feature into specific tasks based on the project architecture*\nAssistant: Let's start with user registration. This will involve creating database models, API endpoints, and frontend forms that integrate with your existing authentication system.\n\n<reasoning>\nThe assistant used the todo list because:\n1. The user provided multiple complex features to implement in a comma separated list\n2. The todo list helps organize these large features into manageable tasks\n3. This approach allows for tracking progress across the entire implementation\n</reasoning>\n</example>\n\n<example>\nUser: Can you help optimize my React application? It's rendering slowly and has performance issues.</user>\nAssistant: I'll help optimize your React application. First, let me examine your codebase to identify potential performance bottlenecks.\n*Reviews component structure, render patterns, state management, and data fetching*\nAssistant: After analyzing your codebase, I've identified several performance issues. Let me create a todo list to track our optimization efforts.\n*Creates todo list with items like: 1) Implement memoization for expensive calculations in ProductList, 2) Add virtualization for long lists in Dashboard, 3) Optimize image loading in Gallery component, 4) Fix state update loops in ShoppingCart, 5) Review bundle size and implement code splitting*\nLet's start by implementing memoization for the expensive calculations in your ProductList component.</assistant>\n\n<reasoning>\nThe assistant used the todo list because:\n1. First, the assistant examined the codebase to identify specific performance issues\n2. Based on this analysis, it identified multiple optimization opportunities\n3. Performance optimization is a non-trivial task requiring multiple steps\n4. The todo list helps methodically track improvements across different components\n5. This systematic approach ensures all performance bottlenecks are addressed\n</reasoning>\n</example>\n\n## Examples of When NOT to Use the Todo List\n\n<example>\nUser: How do I print 'Hello World' in Python?\nAssistant: In Python, you can print \"Hello World\" with this simple code:\n\npython\nprint(\"Hello World\")\n\nThis will output the text \"Hello World\" to the console when executed.</assistant>\n\n<reasoning>\nThe assistant did not use the todo list because this is a single, trivial task that can be completed in one step. There's no need to track multiple tasks or steps for such a straightforward request.\n</reasoning>\n</example>\n\n<example>\nUser: What does the git status command do?\nAssistant: The git status command shows the current state of your working directory and staging area. It displays which changes have been staged, which haven't, and which files aren't being tracked by Git. This is a fundamental command for understanding the current state of your repository before making commits.\n\n<reasoning>\nThe assistant did not use the todo list because this is an informational request with no actual coding task to complete. The user is simply asking for an explanation, not for the assistant to perform multiple steps or tasks.\n</reasoning>\n</example>\n\n<example>\nUser: Can you add a comment to the calculateTotal function to explain what it does?\nAssistant: Sure, let me add a comment to the calculateTotal function to explain what it does.\n* Uses the Edit tool to add a comment to the calculateTotal function *\n\n<reasoning>\nThe assistant did not use the todo list because this is a single, straightforward task confined to one location in the code. Adding a comment doesn't require tracking multiple steps or systematic organization.\n</reasoning>\n</example>\n\n<example>\nUser: Run npm install for me and tell me what happens.\nAssistant: I'll run the npm install command for you.\n\n*Executes: npm install*\n\nThe command completed successfully. Here's the output:\n[Output of npm install command]\n\nAll dependencies have been installed according to your package.json file.\n\n<reasoning>\nThe assistant did not use the todo list because this is a single command execution with immediate results. There are no multiple steps to track or organize, making the todo list unnecessary for this straightforward task.\n</reasoning>\n</example>\n\n## Task States and Management\n\n1. **Task States**: Use these states to track progress:\n   - pending: Task not yet started\n   - in_progress: Currently working on (limit to ONE task at a time)\n   - completed: Task finished successfully\n\n2. **Task Management**:\n   - Update task status in real-time as you work\n   - Mark tasks complete IMMEDIATELY after finishing (don't batch completions)\n   - Only have ONE task in_progress at any time\n   - Complete current tasks before starting new ones\n   - Remove tasks that are no longer relevant from the list entirely\n\n3. **Task Completion Requirements**:\n   - ONLY mark a task as completed when you have FULLY accomplished it\n   - If you encounter errors, blockers, or cannot finish, keep the task as in_progress\n   - When blocked, create a new task describing what needs to be resolved\n   - Never mark a task as completed if:\n     - Tests are failing\n     - Implementation is partial\n     - You encountered unresolved errors\n     - You couldn't find necessary files or dependencies\n\n4. **Task Breakdown**:\n   - Create specific, actionable items\n   - Break complex tasks into smaller, manageable steps\n   - Use clear, descriptive task names\n\nWhen in doubt, use this tool. Being proactive with task management demonstrates attentiveness and ensures you complete all requirements successfully.\n",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "todos": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "content": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "in_progress",
+                        "completed"
+                      ]
+                    },
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "content",
+                    "status",
+                    "id"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "The updated todo list"
+              }
+            },
+            "required": [
+              "todos"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "exit_plan_mode",
+          "description": "Use this tool when you are in plan mode and have finished presenting your plan and are ready to code. This will prompt the user to exit plan mode.\nIMPORTANT: Only use this tool when the task requires planning the implementation steps of a task that requires writing code. For research tasks where you're gathering information, searching files, reading files or in general trying to understand the codebase - do NOT use this tool.\n\nEg.\n1. Initial task: \"Search for and understand the implementation of vim mode in the codebase\" - Do not use the exit plan mode tool because you are not planning the implementation steps of a task.\n2. Initial task: \"Help me implement yank mode for vim\" - Use the exit plan mode tool after you have finished planning the implementation steps of the task.\n",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "plan": {
+                "type": "string",
+                "description": "The plan you came up with, that you want to run by the user for approval. Supports markdown. The plan should be pretty concise."
+              }
+            },
+            "required": [
+              "plan"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "web_fetch",
+          "description": "Fetches content from a specified URL and processes it using an AI model\n- Takes a URL and a prompt as input\n- Fetches the URL content, converts HTML to markdown\n- Processes the content with the prompt using a small, fast model\n- Returns the model's response about the content\n- Use this tool when you need to retrieve and analyze web content\n\nUsage notes:\n  - IMPORTANT: If an MCP-provided web fetch tool is available, prefer using that tool instead of this one, as it may have fewer restrictions. All MCP-provided tools start with \"mcp__\".\n  - The URL must be a fully-formed valid URL\n  - The prompt should describe what information you want to extract from the page\n  - This tool is read-only and does not modify any files\n  - Results may be summarized if the content is very large\n  - Supports both public and private/localhost URLs using direct fetch",
+          "parameters": {
+            "properties": {
+              "url": {
+                "description": "The URL to fetch content from",
+                "type": "string"
+              },
+              "prompt": {
+                "description": "The prompt to run on the fetched content",
+                "type": "string"
+              }
+            },
+            "required": [
+              "url",
+              "prompt"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "web_search",
+          "description": "Allows searching the web and using results to inform responses. Provides up-to-date information for current events and recent data beyond the training data cutoff. Returns search results formatted with concise answers and source links. Use this tool when accessing information that may be outdated or beyond the knowledge cutoff.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "The search query to find information on the web."
+              },
+              "provider": {
+                "type": "string",
+                "description": "Optional provider to use for the search (e.g., \"tavily\", \"google\", \"dashscope\"). IMPORTANT: Only specify this parameter if you explicitly know which provider to use. Otherwise, omit this parameter entirely and let the system automatically select the appropriate provider based on availability and configuration. The system will choose the best available provider automatically."
+              }
+            },
+            "required": [
+              "query"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "id": "chatcmpl-4c6f124b-3781-4449-9e7f-fdd99f374d97",
+    "object": "chat.completion",
+    "created": 1772658,
+    "model": "coder-model",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": null,
+          "refusal": null,
+          "reasoning_content": "The search is still rate limited. Let me try to fetch directly from potential API documentation URLs or look for more specific information.",
+          "tool_calls": [
+            {
+              "id": "call_7b9c743aed914d218ee9fb83",
+              "type": "function",
+              "function": {
+                "name": "web_fetch",
+                "arguments": "{\"prompt\":\"Find all API documentation, endpoints, authentication methods, model routing configuration, request/response formats, and technical details about how to use api.kilo.ai as a model gateway.\",\"url\":\"https://api.kilo.ai\"}"
+              }
+            }
+          ]
+        },
+        "finish_reason": "stop",
+        "logprobs": null
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 17058,
+      "completion_tokens": 105,
+      "total_tokens": 17163,
+      "prompt_tokens_details": {
+        "cached_tokens": 16861
+      }
+    }
+  },
+  "error": null,
+  "system": {
+    "hostname": "jims-MacBook-Pro.local",
+    "platform": "darwin",
+    "release": "24.6.0",
+    "nodeVersion": "v25.6.1"
+  }
+}

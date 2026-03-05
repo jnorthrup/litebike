@@ -13,17 +13,17 @@ mod modelmux_8888_cloaking_tests {
     #[test]
     fn test_single_port_8888_protocol_dispatch() {
         // All protocols dispatch from same port 8888 via precompiled parser combinators
-        let protocols = [
+        let protocols: &[&[u8]] = &[
             b"GET /v1/chat/completions HTTP/1.1\r\nHost: localhost:8888\r\n\r\n",  // OpenAI
             b"POST /v1/messages HTTP/1.1\r\nHost: localhost:8888\r\n\r\n",         // Anthropic
             b"POST /api/generate HTTP/1.1\r\nHost: localhost:8888\r\n\r\n",        // Ollama
             b"GET /api/tags HTTP/1.1\r\nHost: localhost:8888\r\n\r\n",             // Ollama tags
         ];
-        
-        for protocol in &protocols {
+
+        for protocol in protocols {
             // All should be detected from same port 8888
             // RBCursive precompiled dispatch handles all protocols
-            assert!(protocol.len() > 0);
+            assert!(!protocol.is_empty());
         }
     }
 
@@ -191,9 +191,9 @@ mod modelmux_8888_cloaking_tests {
         
         // Free providers should be prioritized
         let container = result.unwrap();
-        let selected = container.select_best();
+        let selected = container.select_provider(100);
         assert!(selected.is_some());
-        assert!(selected.unwrap().is_free());
+        assert!(selected.unwrap().is_free);
     }
 
     // ========================================================================
@@ -296,12 +296,12 @@ mod modelmux_8888_cloaking_tests {
         let container = dsel.build().expect("DSEL should build");
         
         // 3. Select best provider
-        let selected = container.select_best();
+        let selected = container.select_provider(100);
         assert!(selected.is_some(), "Should select a provider");
-        
+
         // 4. Verify free tier priority
         let provider = selected.unwrap();
-        assert!(provider.is_free(), "Should select free tier first");
+        assert!(provider.is_free, "Should select free tier first");
     }
 
     #[test]
@@ -346,9 +346,9 @@ mod modelmux_8888_cloaking_tests {
         container.add_provider("high_paid", 10000, 2, 0.01, false);
         
         // Free should be selected despite low quota
-        let selected = container.select_best();
+        let selected = container.select_provider(5);
         assert!(selected.is_some());
-        assert_eq!(selected.unwrap().provider_id, "low_free");
+        assert_eq!(selected.unwrap().name, "low_free");
     }
 
     #[test]

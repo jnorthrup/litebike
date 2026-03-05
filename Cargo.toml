@@ -5,6 +5,14 @@ edition = "2021"
 license = "AGPL-3.0"
 repository = "https://github.com/jnorthrup/litebike"
 
+[[bin]]
+name = "modelmux"
+path = "src/bin/modelmux.rs"
+
+[[bin]]
+name = "dsel"
+path = "src/bin/dsel.rs"
+
 [dependencies]
 # Core async runtime
 tokio = { version = "1", features = ["full"] }
@@ -39,13 +47,18 @@ blake3 = "1.5"
 
 # CLI
 clap = { version = "4.0", features = ["derive"] }
+colored = "2.0"
 
 # HTTP (for proxy mode)
 warp = { version = "0.3", optional = true }
+reqwest = { version = "0.11", features = ["json", "blocking"] }
 
 # Date/time handling
 chrono = "0.4"
 dirs = "5.0"
+
+# Lazy initialization
+once_cell = "1.19"
 
 # Base64 encoding/decoding
 base64 = "0.21"
