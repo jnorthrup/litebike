@@ -80,7 +80,12 @@ impl ModelHierarchy {
         h
     }
 
+    fn max_ctx() -> usize {
+        crate::models::utils::max_context_window() as usize
+    }
+
     fn load_nvidia_models(&mut self) {
+        let max_ctx = Self::max_ctx();
         let nvidia = ProviderConfig {
             name: "NVIDIA".to_string(),
             base_url: "https://api.nvidia.com/v1".to_string(),
@@ -90,7 +95,7 @@ impl ModelHierarchy {
                 id: "meta/llama-3.1-8b-instruct".to_string(),
                 display_name: "Llama 3.1 8B (NVIDIA) - FREE QUOTA".to_string(),
                 max_tokens: 8000,
-                context_window: 128000,
+                context_window: max_ctx,
             }],
             is_free: true,
             free_quota_tokens: Some(1000000000), // 1B tokens
@@ -105,13 +110,14 @@ impl ModelHierarchy {
             reasoning: false,
             capabilities: vec!["text".to_string(), "code".to_string()],
             cost_per_million_tokens: 0.0,  // FREE
-            context_window: 128000,
+            context_window: max_ctx,
             children: Vec::new(),
         };
         self.roots.push(node);
     }
 
     fn load_openrouter_models(&mut self) {
+        let max_ctx = Self::max_ctx();
         let openrouter = ProviderConfig {
             name: "OpenRouter".to_string(),
             base_url: "https://openrouter.ai/api/v1".to_string(),
@@ -122,13 +128,13 @@ impl ModelHierarchy {
                     id: "openrouter/free".to_string(),
                     display_name: "OpenRouter Free".to_string(),
                     max_tokens: 4096,
-                    context_window: 190000,
+                    context_window: max_ctx,
                 },
                 ModelMeta {
                     id: "anthropic/claude-3.5-haiku".to_string(),
                     display_name: "Claude 3.5 Haiku".to_string(),
                     max_tokens: 8192,
-                    context_window: 200000,
+                    context_window: max_ctx,
                 },
             ],
             is_free: false,
@@ -145,13 +151,14 @@ impl ModelHierarchy {
             reasoning: true,
             capabilities: vec!["text".to_string(), "code".to_string(), "analysis".to_string()],
             cost_per_million_tokens: 2.0,
-            context_window: 200000,
+            context_window: max_ctx,
             children: Vec::new(),
         };
         self.roots.push(haiku_node);
     }
 
     fn load_groq_models(&mut self) {
+        let max_ctx = Self::max_ctx();
         let groq = ProviderConfig {
             name: "Groq".to_string(),
             base_url: "https://api.groq.com/openai/v1".to_string(),
@@ -162,13 +169,13 @@ impl ModelHierarchy {
                     id: "llama-3.1-8b-instant".to_string(),
                     display_name: "Llama 3.1 8B (Groq)".to_string(),
                     max_tokens: 8000,
-                    context_window: 128000,
+                    context_window: max_ctx,
                 },
                 ModelMeta {
                     id: "llama3-8b-8192".to_string(),
                     display_name: "Llama 3 8B (Groq)".to_string(),
                     max_tokens: 8000,
-                    context_window: 8192,
+                    context_window: max_ctx,
                 },
             ],
             is_free: true,
@@ -184,13 +191,14 @@ impl ModelHierarchy {
             reasoning: false,
             capabilities: vec!["text".to_string(), "code".to_string()],
             cost_per_million_tokens: 0.0,
-            context_window: 128000,
+            context_window: max_ctx,
             children: Vec::new(),
         };
         self.roots.push(node);
     }
 
     fn load_openai_models(&mut self) {
+        let max_ctx = Self::max_ctx();
         let openai = ProviderConfig {
             name: "OpenAI".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
@@ -201,13 +209,13 @@ impl ModelHierarchy {
                     id: "gpt-4o-mini".to_string(),
                     display_name: "GPT-4o Mini".to_string(),
                     max_tokens: 16384,
-                    context_window: 128000,
+                    context_window: max_ctx,
                 },
                 ModelMeta {
                     id: "gpt-4o".to_string(),
                     display_name: "GPT-4o".to_string(),
                     max_tokens: 16384,
-                    context_window: 128000,
+                    context_window: max_ctx,
                 },
             ],
             is_free: false,
@@ -217,6 +225,7 @@ impl ModelHierarchy {
     }
 
     fn load_gemini_models(&mut self) {
+        let max_ctx = Self::max_ctx();
         let google = ProviderConfig {
             name: "Google".to_string(),
             base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
@@ -227,13 +236,13 @@ impl ModelHierarchy {
                     id: "gemini-2.0-flash".to_string(),
                     display_name: "Gemini 2.0 Flash".to_string(),
                     max_tokens: 8192,
-                    context_window: 1048576,
+                    context_window: max_ctx,
                 },
                 ModelMeta {
                     id: "gemini-1.5-flash".to_string(),
                     display_name: "Gemini 1.5 Flash".to_string(),
                     max_tokens: 8192,
-                    context_window: 1048576,
+                    context_window: max_ctx,
                 },
             ],
             is_free: true,

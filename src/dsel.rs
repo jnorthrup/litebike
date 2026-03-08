@@ -58,6 +58,7 @@ pub fn discover_providers() -> Vec<Provider> {
         ("cerebras",   &["CEREBRAS_API_KEY"]),
         ("nvidia",     &["NVIDIA_API_KEY"]),
         ("opencode",   &["OPENCODE_API_KEY"]),
+        ("zenmux",     &["ZENMUX_API_KEY"]),
         ("perplexity", &["PERPLEXITY_API_KEY"]),
         ("gemini",     &["GEMINI_API_KEY"]),
     ];
@@ -100,6 +101,7 @@ fn get_default_base_url(name: &str) -> String {
         "opencode"   => "https://api.opencode.ai".to_string(),
         "moonshotai" => "https://api.moonshot.cn/v1".to_string(),
         "perplexity" => "https://api.perplexity.ai".to_string(),
+        "zenmux"     => "https://zenmux.ai/api/v1".to_string(),
         "gemini"     => "https://generativelanguage.googleapis.com/v1beta".to_string(),
         _ => String::new(),
     }

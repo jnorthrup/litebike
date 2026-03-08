@@ -7,11 +7,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::path::PathBuf;
 use tokio::sync::RwLock;
 use log::{info, warn, error, debug};
 
 use crate::models::cache::{CachedModel, ModelCache};
+use crate::models::control::{GatewayControlAction, GatewayControlState, GatewayRuntimeControl};
 use crate::models::registry::{ModelRegistry, ProviderEntry};
+use crate::models::metamodel::{MetamodelCache, Metamodel};
+use crate::models::toolbar::{derive_toolbar_state, ToolbarAction, ToolbarState};
 use crate::keymux::dsel::{DSELBuilder, RuleEngine, QuotaContainer};
 
 /// Proxy configuration
@@ -31,7 +35,7 @@ impl Default for ProxyConfig {
     fn default() -> Self {
         Self {
             bind_address: "0.0.0.0".to_string(),
-            port: 8889, // Default modelmux port (8888 for agent8888)
+            port: 11434, // Ollama-compatible port
             enable_streaming: true,
             enable_caching: true,
             default_model: None,
@@ -57,13 +61,22 @@ pub struct ModelProxy {
     registry: Arc<ModelRegistry>,
     cache: Arc<RwLock<ModelCache>>,
     rule_engine: Arc<RwLock<RuleEngine>>,
+    control: Arc<RwLock<GatewayRuntimeControl>>,
     http_client: reqwest::Client,
+    metacache: Arc<RwLock<crate::models::metamodel::MetamodelCache>>,
 }
 
 impl ModelProxy {
     pub fn new(config: ProxyConfig) -> Self {
         let registry = Arc::new(ModelRegistry::new());
         let cache = Arc::new(RwLock::new(ModelCache::with_defaults()));
+        
+        // metamodel cache (CAS + replication)
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        let meta_dir = home.join(".modelmux").join("metacache");
+        let metacache = Arc::new(RwLock::new(
+            crate::models::metamodel::MetamodelCache::new(meta_dir)
+        ));
         
         // Initialize DSEL rule engine with quota management
         let rule_engine = Arc::new(RwLock::new(
@@ -74,6 +87,7 @@ impl ModelProxy {
                 .with_free_provider("deepseek", 500_000, 2, 50_000, 1_500_000, 0)
                 .with_free_provider("nvidia", 500_000, 2, 50_000, 1_500_000, 0)
                 .with_free_provider("opencode", 250_000, 2, 25_000, 750_000, 0)
+                .with_free_provider("zenmux", 500_000, 2, 50_000, 1_500_000, 0)
                 .with_provider("openai", 2_000_000, 3, 5.0, false)
                 .with_provider("anthropic", 2_000_000, 3, 15.0, false)
                 .build_with_rule_engine()
@@ -85,12 +99,16 @@ impl ModelProxy {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
+        let control = Arc::new(RwLock::new(GatewayRuntimeControl::from_config(&config)));
+
         Self {
             config,
             registry,
             cache,
             rule_engine,
+            control,
             http_client,
+            metacache,
         }
     }
 
@@ -104,10 +122,35 @@ impl ModelProxy {
         // Load models from cache
         self.load_cached_models().await;
 
+        // load metamodels from HuggingFace if token provided
+        if let Ok(hf) = std::env::var("HUGGINGFACE_API_KEY") {
+            if let Ok(metas) = crate::models::metamodel::fetch_huggingface_sheet(&hf).await {
+                let mut mc = self.metacache.write().await;
+                for m in metas {
+                    let _ = mc.insert(m);
+                }
+                mc.replicate_all();
+            }
+        }
+
+        // Pick up default/fallback model from env (may have been loaded from .env)
+        if self.config.default_model.is_none() {
+            self.config.default_model = std::env::var("MODELMUX_DEFAULT_MODEL").ok().filter(|s| !s.is_empty());
+        }
+        if self.config.fallback_model.is_none() {
+            self.config.fallback_model = std::env::var("MODELMUX_FALLBACK_MODEL").ok().filter(|s| !s.is_empty());
+        }
+
+        // Rebuild control with updated config
+        *self.control.write().await = GatewayRuntimeControl::from_config(&self.config);
+
         // Update rule engine based on available API keys
         self.update_rule_engine_from_env().await;
 
         info!("ModelProxy initialized from env");
+        if let Some(ref dm) = self.config.default_model {
+            info!("Default model: {}", dm);
+        }
         Ok(())
     }
 
@@ -132,69 +175,36 @@ impl ModelProxy {
     }
 
     async fn load_cached_models(&self) {
-        // Boot-time seeding for providers without running fetch logic.
-        // Always ensure base set of free providers are present in cache even
-        // if there are existing entries (e.g. perplexity from prior run).
-        let cache_read = self.cache.read().await;
-        let existing_ids: std::collections::HashSet<String> = cache_read
-            .get_all_models()
-            .iter()
-            .map(|m| m.id.clone())
-            .collect();
-        drop(cache_read);
-
-        let mut cache = self.cache.write().await;
-        // helper to add model if absent
-        let mut add_if_missing = |m: CachedModel| {
-            if !existing_ids.contains(&m.id) {
-                cache.cache(m.clone());
-            }
-        };
-
-        // seed the canonical freebies
-        for m in crate::models::cache::predefined::kilo_free_models() {
-            add_if_missing(m);
-        }
-        for m in crate::models::cache::predefined::moonshot_models() {
-            add_if_missing(m);
-        }
-        for m in crate::models::cache::predefined::deepseek_models() {
-            add_if_missing(m);
-        }
-        for m in crate::models::cache::predefined::nvidia_free_models() {
-            add_if_missing(m);
-        }
-        for m in crate::models::cache::predefined::opencode_free_models() {
-            add_if_missing(m);
+        // No predefined seed. Cache starts empty so draw-through fires on
+        // first /v1/models call and fetches real catalogs from live APIs.
+        let cache = self.cache.read().await;
+        let count = cache.get_all_models().len();
+        if count > 0 {
+            info!("Loaded {} models from disk cache", count);
+        } else {
+            info!("Cache empty — draw-through will fetch from providers on first request");
         }
     }
 
     async fn update_rule_engine_from_env(&self) {
+        // Delegate to dsel::discover_providers() — the single source of truth
+        // for key detection, placeholder filtering, and priority ordering.
+        let providers = crate::dsel::discover_providers();
         let mut engine = self.rule_engine.write().await;
-
-        // Check which providers have API keys
-        let providers = [
-            ("KILO_API_KEY", "kilo_code", true),
-            ("MOONSHOT_API_KEY", "moonshot", true),
-            ("DEEPSEEK_API_KEY", "deepseek", true),
-            ("NVIDIA_API_KEY", "nvidia", true),
-            ("OPENCODE_API_KEY", "opencode", true),
-            ("OPENAI_API_KEY", "openai", false),
-            ("ANTHROPIC_API_KEY", "anthropic", false),
-        ];
-
-        for (env_var, provider_name, is_free) in &providers {
-            if std::env::var(env_var).is_ok() {
-                info!("Found API key for provider: {}", provider_name);
-                // Update quota tracking for this provider
-                // In a full implementation, you'd query the provider's quota API
-            }
+        for p in &providers {
+            // Seed quota tracking via a zero-token usage call (auto-creates entry)
+            let _ = engine.track_token_usage(&p.name, 0);
+            info!("Rule engine: provider {} active (key: {})", p.name, p.key_env);
         }
     }
 
     /// Draw-through cache: return cached models, or fetch from providers on miss.
     /// API keys are the asset; base URLs are const mappings.
+    /// context_window values are capped by MODELMUX_MAX_CONTEXT_WINDOW if set.
     pub async fn get_models(&self) -> Value {
+        // Use shared helper so other modules leverage same value
+        let max_ctx = crate::models::utils::max_context_window();
+
         // Check cache first — only return if we have non-expired entries
         {
             let cache = self.cache.read().await;
@@ -266,7 +276,7 @@ impl ModelProxy {
                         id: format!("perplexity/{}", model_name),
                         provider: "perplexity".to_string(),
                         name: model_name.to_string(),
-                        context_window: 128_000,
+                        context_window: crate::models::utils::max_context_window(),
                         max_tokens: 4096,
                         input_cost_per_million: 0.0,
                         output_cost_per_million: 0.0,
@@ -314,7 +324,7 @@ impl ModelProxy {
                                 id: model_id,
                                 provider: p.name.clone(),
                                 name: raw_id.to_string(),
-                                context_window: 128_000,
+                                context_window: crate::models::utils::max_context_window(),
                                 max_tokens: 4096,
                                 input_cost_per_million: 0.0,
                                 output_cost_per_million: 0.0,
@@ -340,7 +350,7 @@ impl ModelProxy {
                         id: format!("{}/default", p.name),
                         provider: p.name.clone(),
                         name: format!("{} (via {})", p.name, p.key_env),
-                        context_window: 128_000,
+                        context_window: crate::models::utils::max_context_window(),
                         max_tokens: 4096,
                         input_cost_per_million: 0.0,
                         output_cost_per_million: 0.0,
@@ -489,88 +499,70 @@ impl ModelProxy {
         )))
     }
 
+    /// Convert a chat.completion response to a chat.completion.chunk for SSE streaming
+    fn completion_to_stream_chunk(response: &Value) -> Value {
+        let choices = response.get("choices").and_then(|c| c.as_array()).cloned().unwrap_or_default();
+        let stream_choices: Vec<Value> = choices.into_iter().map(|choice| {
+            let msg = choice.get("message").cloned().unwrap_or(json!({}));
+            json!({
+                "index": choice.get("index").cloned().unwrap_or(json!(0)),
+                "delta": {
+                    "role": msg.get("role").cloned().unwrap_or(json!("assistant")),
+                    "content": msg.get("content").cloned().unwrap_or(json!("")),
+                },
+                "finish_reason": choice.get("finish_reason").cloned().unwrap_or(json!(null)),
+            })
+        }).collect();
+
+        json!({
+            "id": response.get("id").cloned().unwrap_or(json!("chatcmpl-proxy")),
+            "object": "chat.completion.chunk",
+            "created": response.get("created").cloned().unwrap_or(json!(0)),
+            "model": response.get("model").cloned().unwrap_or(json!("")),
+            "choices": stream_choices,
+        })
+    }
+
     /// Handle chat completions (OpenAI-compatible /v1/chat/completions endpoint)
     /// Routes via DSEL provider discovery — not the static registry.
     pub async fn chat_completions(&self, mut request: Value) -> Result<Value, ProxyError> {
-        let model_raw = request
-            .get("model")
-            .and_then(|m| m.as_str())
-            .ok_or_else(|| ProxyError::BadRequest("Missing model parameter".to_string()))?
-            .to_string();
+        let primary_model = self.prepare_request_model(&mut request).await?;
 
-        // Strip ":latest" tag that Ollama clients append
-        let model = model_raw.trim_end_matches(":latest");
+        match self.send_chat_completion_request(request.clone()).await {
+            Ok((response, _provider_name)) => Ok(response),
+            Err(primary_error) => {
+                if let Some(fallback_model) = self.current_fallback_model().await {
+                    if fallback_model.trim_end_matches(":latest")
+                        != primary_model.trim_end_matches(":latest")
+                    {
+                        warn!(
+                            "{}; attempting configured fallback model {}",
+                            primary_error,
+                            fallback_model
+                        );
+                        let mut fallback_request = request.clone();
+                        fallback_request["model"] = json!(fallback_model);
+                        let _ = self.prepare_request_model(&mut fallback_request).await?;
+                        match self.send_chat_completion_request(fallback_request.clone()).await {
+                            Ok((response, _provider_name)) => return Ok(response),
+                            Err(fallback_error) => {
+                                warn!("{}; attempting OpenRouter free fallback", fallback_error);
+                                return self
+                                    .try_openrouter_free_fallback(
+                                        &fallback_request,
+                                        &fallback_error.to_string(),
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                }
 
-        // Special-case: if the user selected our fake Ollama/OpenRouter model, bypass DSEL
-        if model == "ollama/openrouter-free" {
-            info!("chat_completions: detected ollama/openrouter-free passthru, invoking fallback");
-            return self.try_openrouter_free_fallback(&request, "ollama passthru").await;
-        }
-
-        // Route via DSEL (provider_name, base_url, key_env)
-        let (provider_name, base_url, key_env) = crate::dsel::route(model)
-            .ok_or_else(|| ProxyError::NotFound(format!("No provider for model: {}", model)))?;
-
-        // Strip provider prefix from model ID for upstream
-        // e.g. "kilo_code/openai/gpt-4o" → "openai/gpt-4o"
-        let upstream_model = model.strip_prefix(&format!("{}/", provider_name))
-            .unwrap_or(model);
-
-        info!("Chat: '{}' → provider '{}', upstream model '{}', url '{}'",
-              model, provider_name, upstream_model, base_url);
-
-        // Get API key
-        let api_key = std::env::var(&key_env)
-            .map_err(|_| ProxyError::Unauthorized(format!("Missing API key: {}", key_env)))?;
-
-        // Force non-streaming for now (our raw TCP handler can't stream SSE)
-        request["stream"] = json!(false);
-        // Set upstream model ID
-        request["model"] = json!(upstream_model);
-
-        // Build upstream URL
-        let url = format!("{}/chat/completions", base_url);
-
-        let response = self.http_client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .json(&request)
-            .timeout(std::time::Duration::from_secs(120))
-            .send()
-            .await;
-
-        let resp_json: Value = match response {
-            Ok(resp) if resp.status().is_success() => resp
-                .json()
-                .await
-                .map_err(|e| ProxyError::UpstreamError(format!("Parse error: {}", e)))?,
-            Ok(resp) => {
-                let status = resp.status();
-                let error_text = resp.text().await.unwrap_or_default();
-                let context = format!(
-                    "Provider {} error {}: {}",
-                    provider_name,
-                    status,
-                    &error_text[..error_text.len().min(500)]
-                );
-                warn!("{}; attempting OpenRouter free fallback", context);
-                self.try_openrouter_free_fallback(&request, &context).await?
+                warn!("{}; attempting OpenRouter free fallback", primary_error);
+                self.try_openrouter_free_fallback(&request, &primary_error.to_string())
+                    .await
             }
-            Err(e) => {
-                let context = format!("Primary request failed: {}", e);
-                warn!("{}; attempting OpenRouter free fallback", context);
-                self.try_openrouter_free_fallback(&request, &context).await?
-            }
-        };
-
-        // Track token usage
-        if let Some(usage) = resp_json.get("usage") {
-            let total = usage.get("total_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
-            let _ = crate::dsel::track_tokens(&provider_name, total);
         }
-
-        Ok(resp_json)
     }
 
     /// Handle Ollama native /api/chat endpoint
@@ -873,20 +865,25 @@ impl ModelProxy {
     /// Get proxy health status
     pub async fn health(&self) -> Value {
         let cache = self.cache.read().await;
-        let engine = self.rule_engine.read().await;
+        let control = self.control.read().await;
+        let state = control.snapshot(&self.config);
         
         json!({
             "status": "healthy",
             "models_cached": cache.get_all_models().len(),
             "providers_available": self.registry.get_enabled_providers().len(),
-            "quota_status": "ok"
+            "quota_status": "ok",
+            "preferred_provider": state.routing.preferred_provider,
+            "claude_model_rewrite": state.claude_model_rewrite.enabled,
+            "streaming_enabled": state.streaming.enabled,
         })
     }
 
     /// Get proxy statistics
     pub async fn stats(&self) -> Value {
         let cache = self.cache.read().await;
-        let engine = self.rule_engine.read().await;
+        let control = self.control.read().await;
+        let state = control.snapshot(&self.config);
         
         json!({
             "uptime_secs": 0,
@@ -894,7 +891,93 @@ impl ModelProxy {
             "requests_total": 0,
             "requests_success": 0,
             "requests_error": 0,
+            "providers_active": state.providers.len(),
+            "streaming_mode": state.streaming.ollama_chat,
         })
+    }
+
+    pub async fn control_state(&self) -> GatewayControlState {
+        let control = self.control.read().await;
+        control.snapshot(&self.config)
+    }
+
+    pub async fn apply_control_action(
+        &self,
+        action: GatewayControlAction,
+    ) -> Result<GatewayControlState, ProxyError> {
+        let mut control = self.control.write().await;
+        if matches!(action, GatewayControlAction::Reset) {
+            *control = GatewayRuntimeControl::from_config(&self.config);
+            return Ok(control.snapshot(&self.config));
+        }
+        control.apply_action(action).map_err(ProxyError::BadRequest)?;
+        Ok(control.snapshot(&self.config))
+    }
+
+    pub async fn toolbar_state(&self) -> ToolbarState {
+        let gateway = self.control_state().await;
+        derive_toolbar_state(&gateway)
+    }
+
+    pub async fn apply_toolbar_action(
+        &self,
+        action: ToolbarAction,
+    ) -> Result<ToolbarState, ProxyError> {
+        match action {
+            ToolbarAction::RescanEnv => {
+                self.update_rule_engine_from_env().await;
+            }
+            ToolbarAction::ResetRuntime => {
+                let mut control = self.control.write().await;
+                *control = GatewayRuntimeControl::from_config(&self.config);
+            }
+            ToolbarAction::SetStreamingEnabled { enabled } => {
+                let _ = self
+                    .apply_control_action(GatewayControlAction::SetStreamingEnabled { enabled })
+                    .await?;
+            }
+            ToolbarAction::SetPreferredProvider { provider } => {
+                let _ = self
+                    .apply_control_action(GatewayControlAction::SetPreferredProvider { provider })
+                    .await?;
+            }
+            ToolbarAction::ClearPreferredProvider => {
+                let _ = self
+                    .apply_control_action(GatewayControlAction::ClearPreferredProvider)
+                    .await?;
+            }
+            ToolbarAction::SetDefaultModel { model } => {
+                let _ = self
+                    .apply_control_action(GatewayControlAction::SetDefaultModel { model })
+                    .await?;
+            }
+            ToolbarAction::ClearDefaultModel => {
+                let _ = self
+                    .apply_control_action(GatewayControlAction::ClearDefaultModel)
+                    .await?;
+            }
+            ToolbarAction::SetFallbackModel { model } => {
+                let _ = self
+                    .apply_control_action(GatewayControlAction::SetFallbackModel { model })
+                    .await?;
+            }
+            ToolbarAction::ClearFallbackModel => {
+                let _ = self
+                    .apply_control_action(GatewayControlAction::ClearFallbackModel)
+                    .await?;
+            }
+            ToolbarAction::SetClaudeRewriteEnabled { enabled } => {
+                let mut control = self.control.write().await;
+                control.claude_model_rewrite.enabled = enabled;
+            }
+            ToolbarAction::ClearClaudeRewritePolicy => {
+                let _ = self
+                    .apply_control_action(GatewayControlAction::ClearClaudeRewritePolicy)
+                    .await?;
+            }
+        }
+
+        Ok(self.toolbar_state().await)
     }
 
     /// Start the HTTP server
@@ -916,7 +999,10 @@ impl ModelProxy {
         let proxy_config = self.config.clone();
         let registry = Arc::clone(&self.registry);
         let cache = Arc::clone(&self.cache);
+        let rule_engine = Arc::clone(&self.rule_engine);
+        let control = Arc::clone(&self.control);
         let http_client = self.http_client.clone();
+        let metacache = Arc::clone(&self.metacache);
 
         loop {
             let (stream, _) = listener.accept().await.map_err(|e| {
@@ -928,8 +1014,10 @@ impl ModelProxy {
                 config: proxy_config.clone(),
                 registry: Arc::clone(&registry),
                 cache: Arc::clone(&cache),
-                rule_engine: Arc::new(RwLock::new(RuleEngine::new())),
+                rule_engine: Arc::clone(&rule_engine),
+                control: Arc::clone(&control),
                 http_client: http_client.clone(),
+                metacache: Arc::clone(&metacache),
             };
             let proxy = Arc::new(connection_proxy);
 
@@ -1005,8 +1093,133 @@ impl ModelProxy {
             registry: Arc::clone(&self.registry),
             cache: Arc::clone(&self.cache),
             rule_engine: Arc::clone(&self.rule_engine),
+            control: Arc::clone(&self.control),
             http_client: self.http_client.clone(),
+            metacache: Arc::clone(&self.metacache),
         }
+    }
+
+    async fn prepare_request_model(&self, request: &mut Value) -> Result<String, ProxyError> {
+        let control = self.control.read().await.clone();
+
+        let mut model = request
+            .get("model")
+            .and_then(|m| m.as_str())
+            .map(|m| m.to_string())
+            .or_else(|| control.effective_default_model().map(|m| m.to_string()))
+            .or_else(|| self.config.default_model.clone())
+            .ok_or_else(|| ProxyError::BadRequest("Missing model parameter".to_string()))?;
+
+        if let Some(rewritten) = control.rewrite_model(&model, request) {
+            model = rewritten;
+        }
+
+        if let Some(provider) = control.preferred_provider_for_model(&model) {
+            model = format!("{}/{}", provider, model);
+        }
+
+        if !control.streaming_enabled {
+            request["stream"] = json!(false);
+        }
+
+        request["model"] = json!(model.clone());
+        Ok(model)
+    }
+
+    async fn current_fallback_model(&self) -> Option<String> {
+        let control = self.control.read().await;
+        control
+            .effective_fallback_model()
+            .map(|m| m.to_string())
+            .or_else(|| self.config.fallback_model.clone())
+    }
+
+    async fn send_chat_completion_request(
+        &self,
+        mut request: Value,
+    ) -> Result<(Value, String), ProxyError> {
+        let model_raw = request
+            .get("model")
+            .and_then(|m| m.as_str())
+            .ok_or_else(|| ProxyError::BadRequest("Missing model parameter".to_string()))?
+            .to_string();
+
+        let model = model_raw.trim_end_matches(":latest");
+
+        if model == "ollama/openrouter-free" {
+            let response = self.try_openrouter_free_fallback(&request, "ollama passthru").await?;
+            return Ok((response, "openrouter".to_string()));
+        }
+
+        let route_opt = crate::dsel::route(model);
+        let (provider_name, base_url, key_env) = if let Some(r) = route_opt {
+            r
+        } else {
+            match self.metacache.read().await.get(model) {
+                Ok(Some(meta)) => {
+                    let provider = meta.provider.clone();
+                    let base = format!("https://api.{}.com/v1", provider);
+                    let key_env = format!("{}_API_KEY", provider.to_uppercase());
+                    (provider, base, key_env)
+                }
+                Ok(None) | Err(_) => {
+                    return Err(ProxyError::NotFound(format!("No provider for model: {}", model)));
+                }
+            }
+        };
+
+        let upstream_model = model
+            .strip_prefix(&format!("{}/", provider_name))
+            .unwrap_or(model);
+
+        info!(
+            "Chat: '{}' → provider '{}', upstream model '{}', url '{}'",
+            model, provider_name, upstream_model, base_url
+        );
+
+        let api_key = std::env::var(&key_env)
+            .map_err(|_| ProxyError::Unauthorized(format!("Missing API key: {}", key_env)))?;
+
+        request["stream"] = json!(false);
+        request["model"] = json!(upstream_model);
+
+        let url = format!("{}/chat/completions", base_url);
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&request)
+            .timeout(std::time::Duration::from_secs(120))
+            .send()
+            .await;
+
+        let resp_json: Value = match response {
+            Ok(resp) if resp.status().is_success() => resp
+                .json()
+                .await
+                .map_err(|e| ProxyError::UpstreamError(format!("Parse error: {}", e)))?,
+            Ok(resp) => {
+                let status = resp.status();
+                let error_text = resp.text().await.unwrap_or_default();
+                return Err(ProxyError::UpstreamError(format!(
+                    "Provider {} error {}: {}",
+                    provider_name,
+                    status,
+                    &error_text[..error_text.len().min(500)]
+                )));
+            }
+            Err(e) => {
+                return Err(ProxyError::UpstreamError(format!("Primary request failed: {}", e)));
+            }
+        };
+
+        if let Some(usage) = resp_json.get("usage") {
+            let total = usage.get("total_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
+            let _ = crate::dsel::track_tokens(&provider_name, total);
+        }
+
+        Ok((resp_json, provider_name))
     }
 
     async fn handle_request(
@@ -1031,13 +1244,14 @@ impl ModelProxy {
                     let resp = serde_json::json!({ "models": [tag.clone(), tag.clone(), tag] });
                     return HttpResponse::ok(serde_json::to_string(&resp).unwrap());
                 }
-                // Draw-through: get_models() populates cache on miss
+                // Tuple strategy: expose each cached model as a minimal
+                // (name, model) tuple — the PROVIDER/MODEL id is the only
+                // real data. No fake sizes, digests, or GGUF metadata.
                 let models_val = self.get_models().await;
                 let empty = vec![];
                 let data = models_val.get("data").and_then(|d| d.as_array()).unwrap_or(&empty);
                 let ollama_models: Vec<Value> = data.iter().filter_map(|m| {
                     let id = m.get("id").and_then(|i| i.as_str())?;
-                    // Ollama-first default: hide OpenRouter models in tags unless explicitly enabled.
                     if id.starts_with("openrouter/") {
                         let include_openrouter = std::env::var("MODELMUX_INCLUDE_OPENROUTER_MODELS")
                             .map(|v| {
@@ -1049,22 +1263,9 @@ impl ModelProxy {
                             return None;
                         }
                     }
-                    let owner = m.get("owned_by").and_then(|o| o.as_str()).unwrap_or("unknown");
                     Some(serde_json::json!({
-                        "name": format!("{}:latest", id),
-                        "model": format!("{}:latest", id),
-                        "modified_at": "2025-01-01T00:00:00Z",
-                        "size": 4_000_000_000i64,
-                        "digest": format!("sha256:{}", id.replace('/', "-")),
-                        "details": {
-                            "parent_model": "",
-                            "format": "gguf",
-                            "family": owner,
-                            "families": [owner],
-                            "parameter_size": "7B",
-                            "quantization_level": "Q4_K_M"
-                        },
-                        "capabilities": ["completion", "tools"]
+                        "name": id,
+                        "model": id,
                     }))
                 }).collect();
                 HttpResponse::ok(serde_json::to_string(&serde_json::json!({ "models": ollama_models })).unwrap())
@@ -1081,14 +1282,67 @@ impl ModelProxy {
                 let stats = self.stats().await;
                 HttpResponse::ok(serde_json::to_string(&stats).unwrap())
             }
+            ("GET", "/control/state") | ("GET", "/v1/control/state") => {
+                let state = self.control_state().await;
+                HttpResponse::ok(serde_json::to_string(&state).unwrap())
+            }
+            ("GET", "/toolbar/state") | ("GET", "/v1/toolbar/state") => {
+                let state = self.toolbar_state().await;
+                HttpResponse::ok(serde_json::to_string(&state).unwrap())
+            }
+            ("POST", "/control/actions") | ("POST", "/v1/control/actions") => {
+                let action: GatewayControlAction = match serde_json::from_slice(body) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return HttpResponse::bad_request(format!(
+                            "Invalid control action JSON: {}",
+                            e
+                        ))
+                    }
+                };
+
+                match self.apply_control_action(action).await {
+                    Ok(state) => HttpResponse::ok(serde_json::to_string(&state).unwrap()),
+                    Err(e) => HttpResponse::from_error(e),
+                }
+            }
+            ("POST", "/toolbar/actions") | ("POST", "/v1/toolbar/actions") => {
+                let action: ToolbarAction = match serde_json::from_slice(body) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return HttpResponse::bad_request(format!(
+                            "Invalid toolbar action JSON: {}",
+                            e
+                        ))
+                    }
+                };
+
+                match self.apply_toolbar_action(action).await {
+                    Ok(state) => HttpResponse::ok(serde_json::to_string(&state).unwrap()),
+                    Err(e) => HttpResponse::from_error(e),
+                }
+            }
             ("POST", "/v1/chat/completions") | ("POST", "/chat/completions") => {
                 let request: Value = match serde_json::from_slice(body) {
                     Ok(v) => v,
                     Err(e) => return HttpResponse::bad_request(format!("Invalid JSON: {}", e)),
                 };
 
+                let wants_stream = request.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+
                 match self.chat_completions(request).await {
-                    Ok(response) => HttpResponse::ok(serde_json::to_string(&response).unwrap()),
+                    Ok(response) => {
+                        if wants_stream {
+                            // Convert non-streaming response to SSE format for clients expecting stream
+                            let chunk = Self::completion_to_stream_chunk(&response);
+                            let mut sse_body = String::new();
+                            sse_body.push_str(&format!("data: {}\n\n", serde_json::to_string(&chunk).unwrap()));
+                            sse_body.push_str("data: [DONE]\n\n");
+                            HttpResponse::sse(sse_body)
+                        } else {
+                            HttpResponse::ok(serde_json::to_string(&response).unwrap())
+                        }
+                    }
                     Err(e) => HttpResponse::from_error(e),
                 }
             }
@@ -1099,8 +1353,9 @@ impl ModelProxy {
                 };
 
                 let wants_stream = request.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+                let streaming_enabled = self.control.read().await.streaming_enabled;
 
-                if wants_stream {
+                if wants_stream && streaming_enabled {
                     match self.ollama_chat_stream_body(request).await {
                         Ok(ndjson_body) => HttpResponse::ndjson(ndjson_body),
                         Err(e) => HttpResponse::from_error(e),
@@ -1172,6 +1427,15 @@ impl HttpResponse {
             status: 200,
             status_text: "OK",
             content_type: "application/x-ndjson",
+            body: body.into_bytes(),
+        }
+    }
+
+    fn sse(body: String) -> Self {
+        Self {
+            status: 200,
+            status_text: "OK",
+            content_type: "text/event-stream",
             body: body.into_bytes(),
         }
     }

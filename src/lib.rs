@@ -26,13 +26,17 @@ pub use agents::model_hierarchy::{ModelHierarchy, ModelNode, ProviderConfig};
 pub use agents::web_tools::{WebSearchRequest, WebSearchResult, WebTools};
 pub use keymux::{ModelInfo, WebModelCard, ModelId, ModelCardStore, ModelFacade, ModelMapping};
 pub use dsel::{route, key, has_key, available, status, provider_quota_status, all_provider_quotas, track_tokens};
-pub use models::{ModelCache, ModelRegistry, ModelProxy, ProxyConfig, CachedModel};
+pub use models::{
+    CachedModel, GatewayControlAction, GatewayControlState, GatewayRuntimeControl, ModelCache,
+    ModelProxy, ModelRegistry, ProxyConfig, ToolbarAction, ToolbarState,
+};
 
 
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keymux::DSELBuilder;
 
     #[test]
     fn test_litebike_system() {

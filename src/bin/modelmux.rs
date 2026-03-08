@@ -4,7 +4,7 @@
 //! Boots from env and .env config, caches model selections, proxies to multiple providers.
 //!
 //! Usage:
-//!   modelmux --serve              # Start HTTP server on port 8889
+//!   modelmux --serve              # Start HTTP server on port 11434
 //!   modelmux --port 8888 --serve  # Start on port 8888 (agent8888 mode)
 //!   modelmux --env-file .env      # Load .env file
 //!   modelmux --list               # List available models
@@ -31,7 +31,7 @@ async fn main() {
         .position(|a| a == "--port" || a == "-p")
         .and_then(|i| args.get(i + 1))
         .and_then(|p| p.parse().ok())
-        .unwrap_or(8889);
+        .unwrap_or(11434);
     
     let env_file: Option<String> = args.iter()
         .position(|a| a == "--env-file" || a == "-e")
@@ -68,6 +68,8 @@ async fn main() {
     // Create proxy instance
     let mut proxy = ModelProxy::new(ProxyConfig {
         port,
+        default_model: std::env::var("MODELMUX_DEFAULT_MODEL").ok().filter(|s| !s.is_empty()),
+        fallback_model: std::env::var("MODELMUX_FALLBACK_MODEL").ok().filter(|s| !s.is_empty()),
         ..Default::default()
     });
 

@@ -4,6 +4,7 @@
 //! Recognizes argv[0] for automatic mode selection (agent8888, ollama, lmstudio, etc.)
 
 use clap::{Parser, Subcommand, CommandFactory};
+use serde_json::json;
 use std::process::Command;
 use std::fs;
 use std::path::Path;
@@ -33,7 +34,7 @@ enum Commands {
     /// Start ModelMux server
     Start {
         /// Port to bind
-        #[arg(short, long, default_value = "8889")]
+        #[arg(short, long, default_value = "11434")]
         port: u16,
 
         /// Host to bind
@@ -63,7 +64,7 @@ enum Commands {
 
     /// Restart ModelMux server
     Restart {
-        #[arg(short, long, default_value = "8889")]
+        #[arg(short, long, default_value = "11434")]
         port: u16,
 
         #[arg(long)]
@@ -111,6 +112,12 @@ enum Commands {
         #[command(subcommand)]
         action: CacheActions,
     },
+
+    /// Inspect or update runtime gateway control state
+    Control {
+        #[command(subcommand)]
+        action: ControlActions,
+    },
 }
 
 #[derive(Subcommand)]
@@ -131,6 +138,45 @@ enum CacheActions {
     Clear,
     /// Show cache files
     Show,
+}
+
+#[derive(Subcommand)]
+enum ControlActions {
+    /// Show current runtime control state
+    State,
+    /// Prefer a provider for plain model names
+    SetPreferredProvider { provider: String },
+    /// Clear preferred provider override
+    ClearPreferredProvider,
+    /// Set default model
+    SetDefaultModel { model: String },
+    /// Clear default model
+    ClearDefaultModel,
+    /// Set fallback model
+    SetFallbackModel { model: String },
+    /// Clear fallback model
+    ClearFallbackModel,
+    /// Enable or disable runtime streaming
+    SetStreaming { enabled: bool },
+    /// Replace Claude-requested models with configured stand-ins
+    SetClaudeRewrite {
+        #[arg(long, default_value_t = true)]
+        enabled: bool,
+        #[arg(long)]
+        default_model: Option<String>,
+        #[arg(long)]
+        haiku_model: Option<String>,
+        #[arg(long)]
+        sonnet_model: Option<String>,
+        #[arg(long)]
+        opus_model: Option<String>,
+        #[arg(long)]
+        reasoning_model: Option<String>,
+    },
+    /// Clear Claude model rewriting
+    ClearClaudeRewrite,
+    /// Reset runtime overrides to defaults
+    Reset,
 }
 
 fn main() {
@@ -159,7 +205,7 @@ fn main() {
         Some(Commands::Start { port, host, env, log, daemon, agent8888 }) => {
             // Auto-enable agent8888 mode if invoked as agent8888
             let effective_agent8888 = *agent8888 || is_agent8888;
-            let effective_port = if *port == 8889 && is_agent8888 { 8888 } else { *port };
+            let effective_port = if *port == 11434 && is_agent8888 { 8888 } else { *port };
             cmd_start(effective_port, host, env.as_deref(), log, *daemon, effective_agent8888);
         }
         Some(Commands::Stop) => {
@@ -169,7 +215,7 @@ fn main() {
             cmd_stop();
             std::thread::sleep(std::time::Duration::from_secs(1));
             let effective_agent8888 = *agent8888 || is_agent8888;
-            let effective_port = if *port == 8889 && is_agent8888 { 8888 } else { *port };
+            let effective_port = if *port == 11434 && is_agent8888 { 8888 } else { *port };
             cmd_start(effective_port, "0.0.0.0", None, "info", false, effective_agent8888);
         }
         Some(Commands::Status) => {
@@ -196,6 +242,9 @@ fn main() {
         Some(Commands::Cache { action }) => {
             cmd_cache(action);
         }
+        Some(Commands::Control { action }) => {
+            cmd_control(action);
+        }
         None => {
             // Default: start server with argv[0] detection
             if is_agent8888 {
@@ -207,7 +256,7 @@ fn main() {
                 // LMStudio compatibility mode
                 cmd_start(1234, "0.0.0.0", None, "info", false, false);
             } else {
-                cmd_start(8889, "0.0.0.0", None, "info", false, false);
+                cmd_start(11434, "0.0.0.0", None, "info", false, false);
             }
         }
     }
@@ -322,7 +371,7 @@ fn cmd_stop() {
     #[cfg(unix)]
     {
         let output = Command::new("lsof")
-            .args(["-ti", ":8889"])
+            .args(["-ti", ":11434"])
             .output();
         if let Ok(out) = output {
             let pid = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -344,18 +393,18 @@ fn cmd_status() {
     #[cfg(unix)]
     {
         let output = Command::new("lsof")
-            .args(["-ti", ":8889"])
+            .args(["-ti", ":11434"])
             .output();
         
         if let Ok(out) = output {
             let pid = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if !pid.is_empty() {
                 println!("✓ ModelMux is running");
-                println!("   Port: 8889");
+                println!("   Port: 11434");
                 println!("   PID:  {}", pid);
                 
                 // Health check
-                if let Ok(resp) = reqwest::blocking::get("http://localhost:8889/health") {
+                if let Ok(resp) = reqwest::blocking::get("http://localhost:11434/health") {
                     if resp.status().is_success() {
                         println!("   Health: OK");
                     } else {
@@ -399,7 +448,7 @@ fn cmd_logs(lines: usize) {
 fn cmd_test() {
     println!("🧪 Testing ModelMux endpoints...\n");
 
-    let port = 8889;
+    let port = 11434;
     let client = reqwest::blocking::Client::new();
 
     // Health check
@@ -465,7 +514,7 @@ fn cmd_test() {
 fn cmd_models() {
     let client = reqwest::blocking::Client::new();
     
-    match client.get("http://localhost:8889/v1/models").send() {
+    match client.get("http://localhost:11434/v1/models").send() {
         Ok(resp) => {
             if let Ok(json) = resp.json::<serde_json::Value>() {
                 if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
@@ -521,7 +570,7 @@ fn cmd_chat(model: &str, system: &str) {
         messages.push(serde_json::json!({"role": "user", "content": input}));
 
         let response = client
-            .post("http://localhost:8889/v1/chat/completions")
+            .post("http://localhost:11434/v1/chat/completions")
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
                 "model": model,
@@ -558,7 +607,7 @@ fn cmd_chat(model: &str, system: &str) {
 fn cmd_config() {
     println!("ModelMux Configuration:");
     println!();
-    println!("  MODELMUX_PORT:     8889");
+    println!("  MODELMUX_PORT:     11434");
     println!("  MODELMUX_HOST:     0.0.0.0");
     println!("  MODELMUX_LOG_LEVEL: info");
     println!();
@@ -672,7 +721,7 @@ fn cmd_cache(action: &CacheActions) {
     match action {
         CacheActions::Status => {
             let client = reqwest::blocking::Client::new();
-            if let Ok(resp) = client.get("http://localhost:8889/stats").send() {
+            if let Ok(resp) = client.get("http://localhost:11434/stats").send() {
                 if let Ok(json) = resp.json::<serde_json::Value>() {
                     if let Some(cached) = json.get("models_cached") {
                         println!("Cache Status: {} models cached", cached);
@@ -709,6 +758,97 @@ fn cmd_cache(action: &CacheActions) {
                     println!("  No cache directory");
                 }
             }
+        }
+    }
+}
+
+fn cmd_control(action: &ControlActions) {
+    let client = reqwest::blocking::Client::new();
+
+    match action {
+        ControlActions::State => match client.get("http://localhost:11434/control/state").send() {
+            Ok(resp) => match resp.text() {
+                Ok(body) => println!("{}", body),
+                Err(e) => eprintln!("✗ Failed to read response: {}", e),
+            },
+            Err(e) => {
+                eprintln!("✗ Failed to fetch control state: {}", e);
+                eprintln!("Is ModelMux running? (modelmux status)");
+            }
+        },
+        ControlActions::SetPreferredProvider { provider } => {
+            post_control_action(&client, json!({
+                "action": "set_preferred_provider",
+                "provider": provider,
+            }));
+        }
+        ControlActions::ClearPreferredProvider => {
+            post_control_action(&client, json!({"action": "clear_preferred_provider"}));
+        }
+        ControlActions::SetDefaultModel { model } => {
+            post_control_action(&client, json!({
+                "action": "set_default_model",
+                "model": model,
+            }));
+        }
+        ControlActions::ClearDefaultModel => {
+            post_control_action(&client, json!({"action": "clear_default_model"}));
+        }
+        ControlActions::SetFallbackModel { model } => {
+            post_control_action(&client, json!({
+                "action": "set_fallback_model",
+                "model": model,
+            }));
+        }
+        ControlActions::ClearFallbackModel => {
+            post_control_action(&client, json!({"action": "clear_fallback_model"}));
+        }
+        ControlActions::SetStreaming { enabled } => {
+            post_control_action(&client, json!({
+                "action": "set_streaming_enabled",
+                "enabled": enabled,
+            }));
+        }
+        ControlActions::SetClaudeRewrite {
+            enabled,
+            default_model,
+            haiku_model,
+            sonnet_model,
+            opus_model,
+            reasoning_model,
+        } => {
+            post_control_action(&client, json!({
+                "action": "set_claude_rewrite_policy",
+                "enabled": enabled,
+                "default_model": default_model,
+                "haiku_model": haiku_model,
+                "sonnet_model": sonnet_model,
+                "opus_model": opus_model,
+                "reasoning_model": reasoning_model,
+            }));
+        }
+        ControlActions::ClearClaudeRewrite => {
+            post_control_action(&client, json!({"action": "clear_claude_rewrite_policy"}));
+        }
+        ControlActions::Reset => {
+            post_control_action(&client, json!({"action": "reset"}));
+        }
+    }
+}
+
+fn post_control_action(client: &reqwest::blocking::Client, payload: serde_json::Value) {
+    match client
+        .post("http://localhost:11434/control/actions")
+        .json(&payload)
+        .send()
+    {
+        Ok(resp) => match resp.text() {
+            Ok(body) => println!("{}", body),
+            Err(e) => eprintln!("✗ Failed to read response: {}", e),
+        },
+        Err(e) => {
+            eprintln!("✗ Failed to update control state: {}", e);
+            eprintln!("Is ModelMux running? (modelmux status)");
         }
     }
 }

@@ -6,7 +6,14 @@
 pub mod cache;
 pub mod registry;
 pub mod proxy;
+pub mod metamodel;
+pub mod control;
+pub mod toolbar;
+pub mod utils;
 
 pub use cache::{CachedModel, ModelCache};
 pub use registry::{ModelRegistry, ModelEntry, ProviderEntry};
 pub use proxy::{ModelProxy, ProxyConfig, ProxyRoute};
+pub use metamodel::{Metamodel, MetamodelCache, BlobStore};
+pub use control::{GatewayRuntimeControl, GatewayControlAction, GatewayControlState};
+pub use toolbar::{ToolbarAction, ToolbarState};
