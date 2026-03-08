@@ -17,7 +17,7 @@ pub struct ModelInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebModelCard {
     pub tags: Vec<String>,
-    pub context_window: u32,
+    pub context_window: u64,
     pub pricing: Option<Pricing>,
     pub reasoning_depth: u8, // 1-10
     pub code_native: bool,

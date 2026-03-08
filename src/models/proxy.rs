@@ -17,6 +17,7 @@ use crate::models::registry::{ModelRegistry, ProviderEntry};
 use crate::models::metamodel::{MetamodelCache, Metamodel};
 use crate::models::toolbar::{derive_toolbar_state, ToolbarAction, ToolbarState};
 use crate::keymux::dsel::{DSELBuilder, RuleEngine, QuotaContainer};
+use crate::keymux::cards::ModelCardStore;
 
 /// Proxy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +65,7 @@ pub struct ModelProxy {
     control: Arc<RwLock<GatewayRuntimeControl>>,
     http_client: reqwest::Client,
     metacache: Arc<RwLock<crate::models::metamodel::MetamodelCache>>,
+    card_store: Arc<ModelCardStore>,
 }
 
 impl ModelProxy {
@@ -100,6 +102,7 @@ impl ModelProxy {
             .unwrap_or_else(|_| reqwest::Client::new());
 
         let control = Arc::new(RwLock::new(GatewayRuntimeControl::from_config(&config)));
+        let card_store = Arc::new(ModelCardStore::new());
 
         Self {
             config,
@@ -109,6 +112,7 @@ impl ModelProxy {
             control,
             http_client,
             metacache,
+            card_store,
         }
     }
 
@@ -213,6 +217,10 @@ impl ModelProxy {
                 .filter(|m| !m.is_expired())
                 .collect();
             if !live.is_empty() {
+                // Populate model cards from cached data
+                let live_owned: Vec<CachedModel> = live.iter().map(|m| (*m).clone()).collect();
+                self.card_store.populate_from_cached(&live_owned);
+
                 let mut models: Vec<Value> = live.iter().map(|m| json!({
                     "id": &m.id,
                     "object": "model",
@@ -277,7 +285,7 @@ impl ModelProxy {
                         provider: "perplexity".to_string(),
                         name: model_name.to_string(),
                         context_window: crate::models::utils::max_context_window(),
-                        max_tokens: 4096,
+                        max_tokens: 32768,
                         input_cost_per_million: 0.0,
                         output_cost_per_million: 0.0,
                         is_free: false,
@@ -311,6 +319,7 @@ impl ModelProxy {
                             .and_then(|d| d.as_array())
                             .unwrap_or(&empty);
                         let mut cache = self.cache.write().await;
+                        let max_ctx = crate::models::utils::max_context_window();
                         for m in data {
                             // OpenAI: "id", Gemini: "name" (format: "models/gemini-2.0-flash")
                             let raw_id = m.get("id")
@@ -320,15 +329,45 @@ impl ModelProxy {
                             // Strip "models/" prefix from Gemini
                             let clean_id = raw_id.strip_prefix("models/").unwrap_or(raw_id);
                             let model_id = format!("{}/{}", p.name, clean_id);
+
+                            // Extract real metadata from provider response
+                            // OpenRouter/kilo: context_length, top_provider.max_completion_tokens
+                            // Gemini: inputTokenLimit, outputTokenLimit
+                            // NVIDIA/others: may use context_length or max_tokens
+                            let ctx = m.get("context_length").and_then(|v| v.as_u64())
+                                .or_else(|| m.get("inputTokenLimit").and_then(|v| v.as_u64()))
+                                .or_else(|| m.get("max_context_length").and_then(|v| v.as_u64()))
+                                .unwrap_or(max_ctx)
+                                .min(max_ctx);
+
+                            let max_out = m.get("top_provider")
+                                .and_then(|tp| tp.get("max_completion_tokens"))
+                                .and_then(|v| v.as_u64())
+                                .or_else(|| m.get("outputTokenLimit").and_then(|v| v.as_u64()))
+                                .or_else(|| m.get("max_completion_tokens").and_then(|v| v.as_u64()))
+                                .unwrap_or(32768);
+
+                            let pricing = m.get("pricing");
+                            let input_cost = pricing
+                                .and_then(|p| p.get("prompt").and_then(|v| v.as_str()))
+                                .and_then(|s| s.parse::<f64>().ok())
+                                .map(|c| c * 1_000_000.0) // per-token → per-million
+                                .unwrap_or(0.0);
+                            let output_cost = pricing
+                                .and_then(|p| p.get("completion").and_then(|v| v.as_str()))
+                                .and_then(|s| s.parse::<f64>().ok())
+                                .map(|c| c * 1_000_000.0)
+                                .unwrap_or(0.0);
+
                             cache.cache(crate::models::cache::CachedModel {
                                 id: model_id,
                                 provider: p.name.clone(),
                                 name: raw_id.to_string(),
-                                context_window: crate::models::utils::max_context_window(),
-                                max_tokens: 4096,
-                                input_cost_per_million: 0.0,
-                                output_cost_per_million: 0.0,
-                                is_free: false,
+                                context_window: ctx,
+                                max_tokens: max_out,
+                                input_cost_per_million: input_cost,
+                                output_cost_per_million: output_cost,
+                                is_free: input_cost == 0.0 && output_cost == 0.0,
                                 supports_streaming: true,
                                 supports_tools: true,
                                 cached_at: now,
@@ -351,7 +390,7 @@ impl ModelProxy {
                         provider: p.name.clone(),
                         name: format!("{} (via {})", p.name, p.key_env),
                         context_window: crate::models::utils::max_context_window(),
-                        max_tokens: 4096,
+                        max_tokens: 32768,
                         input_cost_per_million: 0.0,
                         output_cost_per_million: 0.0,
                         is_free: false,
@@ -363,6 +402,13 @@ impl ModelProxy {
                     warn!("Draw-through: {} unreachable, seeded default", p.name);
                 }
             }
+        }
+
+        // Populate model cards from freshly-fetched cache
+        {
+            let cache = self.cache.read().await;
+            let all = cache.get_all_models();
+            self.card_store.populate_from_cached(&all);
         }
 
         // Now read from freshly-populated cache
@@ -497,6 +543,40 @@ impl ModelProxy {
             context,
             last_error
         )))
+    }
+
+    /// Extract parameter size from model name — works across thousands of models
+    /// by regex-matching common naming conventions like "70b", "8x22b", "nano-4b", etc.
+    fn estimate_param_size(name: &str) -> String {
+        let lower = name.to_ascii_lowercase();
+        // Match patterns like "70b", "8b", "671b", "8x22b", "4b-v1.1"
+        // Look for the largest number followed by 'b' (for billions)
+        let mut best: Option<(usize, u64)> = None; // (position, size)
+        let bytes = lower.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i].is_ascii_digit() {
+                let start = i;
+                while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+                    i += 1;
+                }
+                if i < bytes.len() && bytes[i] == b'b'
+                    && (i + 1 >= bytes.len() || !bytes[i + 1].is_ascii_alphabetic())
+                {
+                    if let Ok(n) = lower[start..i].parse::<f64>() {
+                        let size = n as u64;
+                        if size > 0 {
+                            match &best {
+                                Some((_, prev)) if size <= *prev => {}
+                                _ => best = Some((start, size)),
+                            }
+                        }
+                    }
+                }
+            }
+            i += 1;
+        }
+        best.map(|(_, s)| format!("{}B", s)).unwrap_or_else(|| "unknown".into())
     }
 
     /// Convert a chat.completion response to a chat.completion.chunk for SSE streaming
@@ -1018,6 +1098,7 @@ impl ModelProxy {
                 control: Arc::clone(&control),
                 http_client: http_client.clone(),
                 metacache: Arc::clone(&metacache),
+                card_store: Arc::clone(&self.card_store),
             };
             let proxy = Arc::new(connection_proxy);
 
@@ -1096,6 +1177,7 @@ impl ModelProxy {
             control: Arc::clone(&self.control),
             http_client: self.http_client.clone(),
             metacache: Arc::clone(&self.metacache),
+            card_store: Arc::clone(&self.card_store),
         }
     }
 
@@ -1374,24 +1456,49 @@ impl ModelProxy {
                 };
                 let name = request.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
                 let model_id = name.trim_end_matches(":latest");
+
+                // Look up real model metadata from cache
+                let cache = self.cache.read().await;
+                let (ctx, max_out, param_size) = if let Some(cached) = cache.find(model_id) {
+                    (cached.context_window as i64, cached.max_tokens as i64, Self::estimate_param_size(&cached.name))
+                } else {
+                    let default_ctx = crate::models::utils::max_context_window() as i64;
+                    (default_ctx, 32768i64, "unknown".to_string())
+                };
+                drop(cache);
+
+                // Derive capabilities from WebModelCard tags
+                let mut capabilities: Vec<String> = vec!["completion".to_string()];
+                if let Some(card) = self.card_store.get_card(model_id) {
+                    for tag in &card.tags {
+                        if !capabilities.contains(tag) {
+                            capabilities.push(tag.clone());
+                        }
+                    }
+                } else {
+                    // Default: assume tools support
+                    capabilities.push("tools".to_string());
+                }
+
                 HttpResponse::ok(serde_json::to_string(&serde_json::json!({
                     "modelfile": format!("FROM {}", model_id),
-                    "parameters": "num_ctx 128000\nstop \"<|im_end|>\"",
+                    "parameters": format!("num_ctx {}\nstop \"<|im_end|>\"", ctx),
                     "template": "{{ .Prompt }}",
                     "details": {
                         "parent_model": "",
                         "format": "gguf",
                         "family": "modelmux",
                         "families": ["modelmux"],
-                        "parameter_size": "7B",
-                        "quantization_level": "Q4_K_M"
+                        "parameter_size": param_size,
+                        "quantization_level": "FP16"
                     },
                     "model_info": {
                         "general.architecture": "modelmux",
-                        "general.parameter_count": 7_000_000_000i64,
-                        "llama.context_length": 128000i64
+                        "general.parameter_count": 671_000_000_000i64,
+                        "llama.context_length": ctx,
+                        "llama.max_output_length": max_out
                     },
-                    "capabilities": ["completion", "tools"]
+                    "capabilities": capabilities
                 })).unwrap())
             }
             ("GET", "/api/ps") => {

@@ -115,6 +115,20 @@ impl ModelCache {
         }
     }
 
+    /// Find a model by exact id, or by suffix match (e.g. "deepseek/deepseek-chat"
+    /// matches "kilo_code/deepseek/deepseek-chat")
+    pub fn find(&self, query: &str) -> Option<CachedModel> {
+        // Exact match first
+        if let Some(m) = self.get(query) {
+            return Some(m);
+        }
+        // Suffix match: query might omit the provider prefix
+        let suffix = format!("/{}", query);
+        self.memory_cache.values()
+            .find(|m| m.id.ends_with(&suffix) || m.id == query)
+            .cloned()
+    }
+
     pub fn get_provider_models(&self, provider: &str) -> Vec<CachedModel> {
         let mut models = Vec::new();
         if let Some(model_ids) = self.models_by_provider.get(provider) {
