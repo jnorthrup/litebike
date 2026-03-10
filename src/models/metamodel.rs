@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use log::{debug, info, warn};
 
 /// Generic metadata about a model that may be needed for routing/conversion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -215,6 +216,194 @@ impl MetamodelCache {
 impl Clone for BlobStore {
     fn clone(&self) -> Self {
         BlobStore { base_dir: self.base_dir.clone() }
+    }
+}
+
+// ── HuggingFace Model Card enrichment ────────────────────────────────────
+
+/// Enriched metadata fetched from HuggingFace Hub for a model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HfModelCard {
+    pub hf_repo_id: String,
+    pub context_window: Option<u64>,
+    pub param_count: Option<u64>,
+    pub tags: Vec<String>,
+    pub pipeline_tag: Option<String>,
+    pub downloads: u64,
+}
+
+/// Strip provider prefixes from a model ID to get a searchable short name.
+/// e.g. `kilo_code/deepseek/deepseek-chat` -> `deepseek-chat`
+///      `nvidia/meta/llama-3.2-90b-vision-instruct` -> `llama-3.2-90b-vision-instruct`
+fn strip_provider_prefix(model_name: &str) -> &str {
+    // Take the last path segment
+    model_name.rsplit('/').next().unwrap_or(model_name)
+}
+
+/// Fetch HuggingFace model card metadata for a given model name.
+/// Uses the public HF API with optional auth token.
+/// `timeout` controls the HTTP request timeout.
+pub async fn fetch_hf_model_card(
+    client: &reqwest::Client,
+    model_name: &str,
+    timeout: Duration,
+) -> Option<HfModelCard> {
+    let short_name = strip_provider_prefix(model_name);
+    if short_name.is_empty() {
+        return None;
+    }
+
+    // Build auth header if available
+    let hf_token = std::env::var("HUGGINGFACE_API_KEY")
+        .or_else(|_| std::env::var("HF_TOKEN"))
+        .ok()
+        .filter(|t| !t.is_empty());
+
+    // Step 1: Search HF API for matching text-generation models
+    let search_url = format!(
+        "https://huggingface.co/api/models?search={}&limit=3&sort=downloads&direction=-1&filter=text-generation",
+        urlencoding(short_name)
+    );
+
+    let mut req = client.get(&search_url).timeout(timeout);
+    if let Some(ref token) = hf_token {
+        req = req.header("Authorization", format!("Bearer {}", token));
+    }
+
+    let resp = match req.send().await {
+        Ok(r) if r.status().is_success() => r,
+        Ok(r) => {
+            debug!("HF search returned status {} for '{}'", r.status(), short_name);
+            return None;
+        }
+        Err(e) => {
+            debug!("HF search failed for '{}': {}", short_name, e);
+            return None;
+        }
+    };
+
+    let results: Vec<serde_json::Value> = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+
+    if results.is_empty() {
+        debug!("HF search returned no results for '{}'", short_name);
+        return None;
+    }
+
+    // Pick result with highest downloads
+    let best = results.iter().max_by_key(|r| {
+        r.get("downloads").and_then(|d| d.as_u64()).unwrap_or(0)
+    })?;
+
+    let repo_id = best.get("modelId").and_then(|v| v.as_str())?.to_string();
+    let downloads = best.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
+    let pipeline_tag = best.get("pipeline_tag").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let tags: Vec<String> = best.get("tags")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+
+    // Step 2: Fetch config.json for architecture details
+    let config_url = format!("https://huggingface.co/{}/raw/main/config.json", repo_id);
+    let mut cfg_req = client.get(&config_url).timeout(timeout);
+    if let Some(ref token) = hf_token {
+        cfg_req = cfg_req.header("Authorization", format!("Bearer {}", token));
+    }
+
+    let (context_window, param_count) = match cfg_req.send().await {
+        Ok(r) if r.status().is_success() => {
+            match r.json::<serde_json::Value>().await {
+                Ok(cfg) => extract_arch_info(&cfg),
+                Err(_) => (None, None),
+            }
+        }
+        _ => (None, None),
+    };
+
+    Some(HfModelCard {
+        hf_repo_id: repo_id,
+        context_window,
+        param_count,
+        tags,
+        pipeline_tag,
+        downloads,
+    })
+}
+
+/// Extract context window and approximate param count from a HF config.json.
+fn extract_arch_info(cfg: &serde_json::Value) -> (Option<u64>, Option<u64>) {
+    let context_window = cfg.get("max_position_embeddings")
+        .and_then(|v| v.as_u64())
+        .or_else(|| cfg.get("max_sequence_length").and_then(|v| v.as_u64()))
+        .or_else(|| cfg.get("seq_length").and_then(|v| v.as_u64()));
+
+    let hidden_size = cfg.get("hidden_size").and_then(|v| v.as_u64());
+    let num_layers = cfg.get("num_hidden_layers").and_then(|v| v.as_u64());
+
+    // Approximate param count: ~12 * num_layers * hidden_size^2 for transformer models
+    let param_count = match (hidden_size, num_layers) {
+        (Some(h), Some(l)) => Some(12 * l * h * h),
+        _ => None,
+    };
+
+    (context_window, param_count)
+}
+
+/// Minimal URL-encoding for the search query parameter.
+fn urlencoding(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 2);
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            b' ' => out.push('+'),
+            _ => {
+                out.push('%');
+                out.push(char::from(b"0123456789ABCDEF"[(b >> 4) as usize]));
+                out.push(char::from(b"0123456789ABCDEF"[(b & 0xf) as usize]));
+            }
+        }
+    }
+    out
+}
+
+/// Disk-backed cache for HF model card results, keyed by model ID.
+pub struct HfCardCache {
+    dir: PathBuf,
+}
+
+impl HfCardCache {
+    pub fn new(dir: PathBuf) -> Self {
+        let _ = fs::create_dir_all(&dir);
+        Self { dir }
+    }
+
+    fn path_for(&self, model_id: &str) -> PathBuf {
+        let safe = model_id.replace('/', "_").replace(':', "_");
+        self.dir.join(format!("{}.json", safe))
+    }
+
+    pub fn get(&self, model_id: &str) -> Option<HfModelCard> {
+        let path = self.path_for(model_id);
+        if !path.exists() {
+            return None;
+        }
+        let data = fs::read_to_string(&path).ok()?;
+        serde_json::from_str(&data).ok()
+    }
+
+    pub fn put(&self, model_id: &str, card: &HfModelCard) {
+        let path = self.path_for(model_id);
+        if let Ok(json) = serde_json::to_string_pretty(card) {
+            let _ = fs::write(&path, json);
+        }
+    }
+
+    pub fn has(&self, model_id: &str) -> bool {
+        self.path_for(model_id).exists()
     }
 }
 

@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use super::control::{GatewayControlState, GatewayFacadeFamily};
+use super::control::{GatewayControlState, GatewayFacadeFamily, ProviderKeyPrecedence};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -80,6 +80,8 @@ pub struct ToolbarDebtState {
 pub struct ToolbarRuntimeState {
     pub streaming_enabled: bool,
     pub claude_rewrite_enabled: bool,
+    pub keymux_strategy: String,
+    pub provider_key_overrides: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -113,7 +115,23 @@ pub enum ToolbarAction {
     SetFallbackModel { model: String },
     ClearFallbackModel,
     SetClaudeRewriteEnabled { enabled: bool },
+    SetClaudeRewritePolicy {
+        enabled: bool,
+        default_model: Option<String>,
+        haiku_model: Option<String>,
+        sonnet_model: Option<String>,
+        opus_model: Option<String>,
+        reasoning_model: Option<String>,
+    },
     ClearClaudeRewritePolicy,
+    SetProviderKeyPolicy {
+        provider: String,
+        env_key: Option<String>,
+        override_env_key: Option<String>,
+        precedence: ProviderKeyPrecedence,
+    },
+    ClearProviderKeyPolicy { provider: String },
+    ImportCcSwitchKeysAdditive { path: Option<String> },
 }
 
 pub fn derive_toolbar_state(gateway: &GatewayControlState) -> ToolbarState {
@@ -134,6 +152,13 @@ pub fn derive_toolbar_state(gateway: &GatewayControlState) -> ToolbarState {
     let runtime = ToolbarRuntimeState {
         streaming_enabled: gateway.streaming.enabled,
         claude_rewrite_enabled: gateway.claude_model_rewrite.enabled,
+        keymux_strategy: gateway.keymux.strategy.clone(),
+        provider_key_overrides: gateway
+            .keymux
+            .provider_keys
+            .iter()
+            .filter(|state| state.override_env_key.is_some())
+            .count(),
     };
     let surfaces = vec![
         ToolbarSurfaceState {
@@ -180,7 +205,11 @@ pub fn derive_toolbar_state(gateway: &GatewayControlState) -> ToolbarState {
             "set_fallback_model".to_string(),
             "clear_fallback_model".to_string(),
             "set_claude_rewrite_enabled".to_string(),
+            "set_claude_rewrite_policy".to_string(),
             "clear_claude_rewrite_policy".to_string(),
+            "set_provider_key_policy".to_string(),
+            "clear_provider_key_policy".to_string(),
+            "import_cc_switch_keys_additive".to_string(),
         ],
     }
 }
@@ -220,10 +249,17 @@ fn derive_route_state(gateway: &GatewayControlState) -> ToolbarRouteState {
 }
 
 fn scan_env_state() -> ToolbarEnvState {
+    scan_env_state_from(env::vars())
+}
+
+fn scan_env_state_from<I>(vars: I) -> ToolbarEnvState
+where
+    I: IntoIterator<Item = (String, String)>,
+{
     let mut recognized_keys = 0usize;
     let mut unknown_keys = 0usize;
 
-    for (key, value) in env::vars() {
+    for (key, value) in vars {
         if value.trim().is_empty() {
             continue;
         }
@@ -423,6 +459,11 @@ fn is_known_env_key(key: &str) -> bool {
         "MODELMUX_CLAUDE_SONNET_MODEL",
         "MODELMUX_CLAUDE_OPUS_MODEL",
         "MODELMUX_CLAUDE_REASONING_MODEL",
+        "MODELMUX_DEFAULT_MODEL",
+        "MODELMUX_FALLBACK_MODEL",
+        "MODELMUX_PORT",
+        "MODELMUX_HOST",
+        "MODELMUX_LOG_LEVEL",
         "MODELMUX_TODO_PATH",
         "MODELMUX_LEDGER_DB",
         "ANTHROPIC_MODEL",
@@ -441,8 +482,8 @@ fn is_known_env_key(key: &str) -> bool {
 mod tests {
     use super::*;
     use crate::models::control::{
-        ClaudeModelRewritePolicy, GatewayProviderStatus, GatewayRoutingMode, GatewayRoutingState,
-        GatewayStreamingState, GatewayTransportState,
+        ClaudeModelRewritePolicy, GatewayKeymuxState, GatewayProviderStatus, GatewayRoutingMode,
+        GatewayRoutingState, GatewayStreamingState, GatewayTransportState,
     };
 
     #[test]
@@ -504,6 +545,10 @@ mod tests {
                 opus_model: None,
                 reasoning_model: None,
             },
+            keymux: GatewayKeymuxState {
+                strategy: "default".to_string(),
+                provider_keys: Vec::new(),
+            },
             providers: vec![GatewayProviderStatus {
                 name: "anthropic".to_string(),
                 family: GatewayFacadeFamily::AnthropicCompatible,
@@ -524,5 +569,53 @@ mod tests {
             Some("anthropic/claude-3-5-sonnet")
         );
         assert_eq!(toolbar.route.family, GatewayFacadeFamily::AnthropicCompatible);
+    }
+
+    #[test]
+    fn toolbar_action_accepts_canonical_rewrite_action() {
+        let action: ToolbarAction = serde_json::from_value(serde_json::json!({
+            "action": "set_claude_rewrite_policy",
+            "enabled": true,
+            "default_model": "ordinal/default",
+            "sonnet_model": "ordinal/sonnet"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            action,
+            ToolbarAction::SetClaudeRewritePolicy {
+                enabled: true,
+                default_model: Some("ordinal/default".to_string()),
+                haiku_model: None,
+                sonnet_model: Some("ordinal/sonnet".to_string()),
+                opus_model: None,
+                reasoning_model: None,
+            }
+        );
+    }
+
+    #[test]
+    fn scan_env_state_from_counts_recognized_runtime_keys() {
+        let state = scan_env_state_from(vec![
+            ("MODELMUX_DEFAULT_MODEL".to_string(), "anthropic/sonnet".to_string()),
+            ("MODELMUX_PORT".to_string(), "8888".to_string()),
+            ("OPENAI_API_KEY".to_string(), "sk-live-key".to_string()),
+        ]);
+
+        assert_eq!(state.recognized_keys, 3);
+        assert_eq!(state.unknown_keys, 0);
+        assert_eq!(state.confidence, ToolbarConfidenceBucket::High);
+    }
+
+    #[test]
+    fn scan_env_state_from_counts_unknown_provider_keys() {
+        let state = scan_env_state_from(vec![
+            ("CUSTOMLAB_API_KEY".to_string(), "abc123".to_string()),
+            ("MODELMUX_DEFAULT_MODEL".to_string(), "openai/gpt-4o-mini".to_string()),
+        ]);
+
+        assert_eq!(state.recognized_keys, 1);
+        assert_eq!(state.unknown_keys, 1);
+        assert_eq!(state.confidence, ToolbarConfidenceBucket::Medium);
     }
 }

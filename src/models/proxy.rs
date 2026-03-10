@@ -1050,9 +1050,55 @@ impl ModelProxy {
                 let mut control = self.control.write().await;
                 control.claude_model_rewrite.enabled = enabled;
             }
+            ToolbarAction::SetClaudeRewritePolicy {
+                enabled,
+                default_model,
+                haiku_model,
+                sonnet_model,
+                opus_model,
+                reasoning_model,
+            } => {
+                let _ = self
+                    .apply_control_action(GatewayControlAction::SetClaudeRewritePolicy {
+                        enabled,
+                        default_model,
+                        haiku_model,
+                        sonnet_model,
+                        opus_model,
+                        reasoning_model,
+                    })
+                    .await?;
+            }
             ToolbarAction::ClearClaudeRewritePolicy => {
                 let _ = self
                     .apply_control_action(GatewayControlAction::ClearClaudeRewritePolicy)
+                    .await?;
+            }
+            ToolbarAction::SetProviderKeyPolicy {
+                provider,
+                env_key,
+                override_env_key,
+                precedence,
+            } => {
+                let _ = self
+                    .apply_control_action(GatewayControlAction::SetProviderKeyPolicy {
+                        provider,
+                        env_key,
+                        override_env_key,
+                        precedence,
+                    })
+                    .await?;
+            }
+            ToolbarAction::ClearProviderKeyPolicy { provider } => {
+                let _ = self
+                    .apply_control_action(GatewayControlAction::ClearProviderKeyPolicy { provider })
+                    .await?;
+            }
+            ToolbarAction::ImportCcSwitchKeysAdditive { path } => {
+                let _ = self
+                    .apply_control_action(GatewayControlAction::ImportCcSwitchKeysAdditive {
+                        path,
+                    })
                     .await?;
             }
         }

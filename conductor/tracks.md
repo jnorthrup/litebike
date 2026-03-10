@@ -2,8 +2,8 @@
 
 This file orchestrates the "Creeping Vine" transport and "Dystopian Holdout" control plane.
 
-**Last Updated:** 2026-03-04  
-**Overall Completion:** 41/203 tasks (20.2%) → Target: 100% on context-resident tasks
+**Last Updated:** 2026-03-10  
+**Overall Completion:** 44/203 tasks (21.7%) → Target: 100% on context-resident tasks
 
 ---
 
@@ -11,6 +11,14 @@ This file orchestrates the "Creeping Vine" transport and "Dystopian Holdout" con
 - **Objective:** Establish a unified `v1/models` facade in `litebike`. Standardize model protocols and specialized metadata via Web Model Cards.
 - **Status:** All tasks complete (3/3)
 - **Link:** [./tracks/universal_model_facade_20260226/](./tracks/universal_model_facade_20260226/)
+
+---
+
+## [~] Track: Litebike Edge Companion Launch 🔄 IN PROGRESS
+- **Objective:** Lock launch truth so `litebike` remains the primary runtime shell/operator surface and `literbike` is treated as the gated heart/backplane imported into it.
+- **Status:** Boundary truth corrected in both repos; README launch narrative published; packaging alignment still open
+- **Priority:** High
+- **Link:** [./tracks/litebike_edge_companion_launch_20260308/](./tracks/litebike_edge_companion_launch_20260308/)
 
 ---
 

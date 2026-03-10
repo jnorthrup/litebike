@@ -1,13 +1,22 @@
-# LiteBike - Network Utilities Binary
+# LiteBike - Edge Proxy and Network Utilities
 
-> **Companion binary to literbike** - Provides system network utilities and proxy services.
+> **The small shell / operator front door**. `litebike` on port 8888 is the canonical ingress surface that subsumes both repos when `literbike` is present. It provides syscall-driven network tools, protocol detection, and lightweight stacked proxy routing.
+
+> **Gated heart/backplane**: `literbike` runs behind `litebike` as the heavier unified traffic and service runtime.
 
 ![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Android%20%7C%20macOS%20%7C%20Linux-green.svg)
 
 ## Overview
 
-LiteBike is a multi-call binary that provides:
+`litebike` is the lightweight edge half of a two-repo system. The **`litebike` agent on port 8888** is the canonical ingress/operator surface—clients and apps connect here. When `literbike` is present, `litebike` subsumes both repos: it handles local proxying, interface discovery, Knox-aware handling, and command-line network tooling, delegating heavier transport and service work to `literbike` behind it.
+
+- **`litebike`** (port 8888): edge ingress, local proxying, interface discovery, Knox-aware handling, and command-line network tooling — the small shell/operator front door
+- **`literbike`**: the gated heart/backplane — heavier unified traffic and service runtime, including QUIC, API translation, DHT, content-addressed storage, and service adapters
+
+In practice, `litebike` is the lean edge process you can drop onto constrained hosts, while `literbike` is the heavier backplane when you need broader transport and service unification.
+
+LiteBike provides:
 
 - **Network Utilities**: `ifconfig`, `ip`, `route`, `netstat` emulation
 - **Proxy Server**: Multi-protocol proxy on unified port (HTTP, SOCKS5, TLS, DoH)
@@ -93,6 +102,8 @@ RUST_LOG=debug litebike --proxy
 - PAC/WPAD
 - Bonjour/mDNS
 - UPnP
+
+This routing layer is intentionally lightweight. It behaves like a stacked edge router: inspect early bytes, classify quickly, then hand traffic to the minimal local handler or forward it toward heavier services behind `literbike`.
 
 ## Configuration
 
@@ -235,11 +246,56 @@ Syscall-based implementation (no /proc, /sys parsing):
 | Route table | 0.5ms | 3.2ms | 6x |
 | Socket stats | 0.8ms | 5.4ms | 7x |
 
+## Deployment Path
+
+```text
+client/app -> litebike agent8888 (port 8888) -> literbike
+```
+
+- **client/app** connects to `litebike` on port 8888 (the canonical ingress)
+- **litebike** (agent8888) is the small shell/operator front door — it handles local port binding, protocol sniffing, edge policy, and interface selection
+- **literbike** (when present) is the gated heart/backplane — it handles transport runtime, service translation, and durable traffic orchestration
+
+When `literbike` is running behind `litebike`, `litebike` subsumes both repos: local operations stay local, heavier transport and service work flows through to `literbike`.
+
+## Repo Relationship
+
+Use `litebike` when you want:
+
+- Small edge deployment footprint
+- Syscall-only interface and route inspection
+- Unified ingress on a single local port (port 8888)
+- Local protocol classification and lightweight proxy behavior
+- The canonical operator surface that subsumes both repos when literbike is present
+
+Use `literbike` when you want:
+
+- QUIC and transport-heavy runtime behavior
+- Unified traffic and service adapters
+- API translation across providers
+- DHT, CAS, and broader service composition
+- The gated heart/backplane behind litebike's front door
+
+Typical deployment shape:
+
+```text
+client/app
+  -> litebike (agent8888 on port 8888)
+     - canonical ingress surface
+     - local port binding
+     - protocol sniffing
+     - edge policy and interface selection
+  -> literbike
+     - transport runtime
+     - service translation
+     - durable traffic and service orchestration
+```
+
 ## Related Projects
 
-- **literbike**: Core Rust library (`/Users/jim/work/literbike`)
-- **freqtrade**: Crypto trading bot with literbike integration
-- **betanet**: Historical protocol specification (HTX sourced from here)
+- **literbike**: heavier transport and services companion (`/Users/jim/work/literbike`)
+- **freqtrade**: crypto trading bot with literbike integration
+- **betanet**: historical protocol specification (HTX sourced from here)
 
 ## License
 

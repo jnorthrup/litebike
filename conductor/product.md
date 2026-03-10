@@ -2,25 +2,44 @@
 
 ## What this repo is
 
-`litebike` is a Rust multi-call binary that provides network utilities and proxy services. It serves as a companion to `literbike` and provides:
+`litebike` is the primary deployable runtime shell for the `litebike` /
+`literbike` system. It is the small Rust multi-call binary that must remain
+useful on its own while also accepting a heavier `literbike` "heart" when that
+companion is present. In concrete terms, `litebike` owns the edge/runtime
+surface and `literbike` supplies deeper library/backplane capabilities behind a
+gated import boundary.
+
+`litebike` must remain complete enough to launch, proxy, and operate without
+`literbike`. When `literbike` is present, it deepens the shell with transport,
+model, and DSEL capability, but does not take ownership of the outer operator
+surface.
+
+The canonical composed surface is `litebike` `agent8888` on port `8888`. When
+`literbike` is mounted, that single ingress/operator surface subsumes both
+repos rather than creating a second front door.
+
+`litebike` provides:
 
 - **Network Utilities**: `ifconfig`, `ip`, `route`, `netstat` emulation using direct syscalls
 - **Proxy Server**: Multi-protocol proxy on unified port (HTTP, SOCKS5, TLS, DoH)
 - **System Info**: Interface probing, carrier detection, radio info
 - **Trading Integration**: Origin mirroring for crypto exchange APIs (e.g., Binance)
+- **Operator Shell**: launch/install/automation ownership for the lightweight runtime surface
 
 ## Product Direction
 
 - Maintain syscall-based implementation for Android/Termux compatibility (no `/proc`, `/sys` dependencies)
 - Enhance proxy server capabilities for trading bot integrations
-- Improve QUIC transport support via literbike integration
-- Support model facade and DSEL quota management for freqtrade ring agent
+- Keep `litebike` small enough to stay launchable on constrained hosts and macOS menu-bar/operator surfaces
+- Import `literbike` as the gated "heart" layer when heavier model facade, DSEL, QUIC, or transport composition is available
+- Avoid reversing ownership: `literbike` may animate `litebike`, but it does not replace `litebike` as the primary shell
 
 ## Primary Consumers
 
 - **Freqtrade ring agent**: Proxy and transport layer
 - **Android/Termux users**: Network utilities in restricted environments
 - **Quantitative traders**: Exchange API mirroring and proxy services
+- **macOS operators**: menu-bar launch, auto-proxy, SSH, git push, and remote build workflows
 
 ## Product Constraints
 
@@ -31,6 +50,6 @@
 
 ## Relationship to Other Projects
 
-- **literbike**: Core Rust library (local path dependency)
+- **literbike**: Gated heart/backplane library for deeper transport, model facade, and DSEL capability
 - **freqtrade**: Crypto trading bot with litebike integration
 - **moneyfan**: HRM trading system using litebike proxy capabilities

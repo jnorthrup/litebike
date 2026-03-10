@@ -14,6 +14,6 @@ pub mod utils;
 pub use cache::{CachedModel, ModelCache};
 pub use registry::{ModelRegistry, ModelEntry, ProviderEntry};
 pub use proxy::{ModelProxy, ProxyConfig, ProxyRoute};
-pub use metamodel::{Metamodel, MetamodelCache, BlobStore};
+pub use metamodel::{Metamodel, MetamodelCache, BlobStore, HfModelCard, HfCardCache, fetch_hf_model_card};
 pub use control::{GatewayRuntimeControl, GatewayControlAction, GatewayControlState};
 pub use toolbar::{ToolbarAction, ToolbarState};

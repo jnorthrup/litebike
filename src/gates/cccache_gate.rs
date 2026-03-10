@@ -3,6 +3,8 @@
 
 use super::{Gate, GateError};
 use async_trait::async_trait;
+use serde_json::json;
+use std::collections::HashMap;
 use std::sync::Arc;
 use parking_lot::RwLock;
 use tokio::net::TcpStream;
@@ -37,6 +39,7 @@ pub struct CCCacheGate {
     config: Arc<RwLock<CCCacheConfig>>,
     backend_host: Arc<RwLock<String>>,
     backend_port: Arc<RwLock<u16>>,
+    agent_backends: Arc<RwLock<HashMap<String, (String, u16)>>>,
 }
 
 impl CCCacheGate {
@@ -46,6 +49,7 @@ impl CCCacheGate {
             config: Arc::new(RwLock::new(CCCacheConfig::default())),
             backend_host: Arc::new(RwLock::new("127.0.0.1".to_string())),
             backend_port: Arc::new(RwLock::new(9527)),
+            agent_backends: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -55,6 +59,7 @@ impl CCCacheGate {
             backend_host: Arc::new(RwLock::new(config.backend_host.clone())),
             backend_port: Arc::new(RwLock::new(config.backend_port)),
             config: Arc::new(RwLock::new(config)),
+            agent_backends: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -69,6 +74,70 @@ impl CCCacheGate {
     pub fn set_backend(&self, host: &str, port: u16) {
         *self.backend_host.write() = host.to_string();
         *self.backend_port.write() = port;
+    }
+
+    pub fn set_agent_backend(&self, agent: &str, host: &str, port: u16) {
+        let agent = normalize_agent_id(agent);
+        if agent.is_empty() {
+            return;
+        }
+        self.agent_backends
+            .write()
+            .insert(agent, (host.to_string(), port));
+    }
+
+    pub fn clear_agent_backend(&self, agent: &str) {
+        let agent = normalize_agent_id(agent);
+        if agent.is_empty() {
+            return;
+        }
+        self.agent_backends.write().remove(&agent);
+    }
+
+    fn extract_target_agent(&self, data: &[u8]) -> Option<String> {
+        let request = String::from_utf8_lossy(data);
+        let mut lines = request.lines();
+        let first = lines.next()?;
+        if let Some(path) = first.split_whitespace().nth(1) {
+            if let Some(agent) = extract_agent_from_path(path) {
+                return Some(agent);
+            }
+        }
+
+        for line in lines {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                break;
+            }
+
+            let lower = trimmed.to_ascii_lowercase();
+            if let Some(value) = lower
+                .strip_prefix("x-agent-target:")
+                .or_else(|| lower.strip_prefix("x-agent-name:"))
+                .or_else(|| lower.strip_prefix("x-cc-agent:"))
+            {
+                let agent = normalize_agent_id(value);
+                if !agent.is_empty() {
+                    return Some(agent);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn resolve_backend_for_request(&self, data: &[u8]) -> (String, u16, Option<String>) {
+        if let Some(agent) = self.extract_target_agent(data) {
+            if let Some((host, port)) = self.agent_backends.read().get(&agent).cloned() {
+                return (host, port, Some(agent));
+            }
+        }
+
+        (
+            self.backend_host.read().clone(),
+            *self.backend_port.read(),
+            None,
+        )
     }
 
     /// Detect Claude API requests (Anthropic format)
@@ -179,10 +248,16 @@ impl CCCacheGate {
 
     /// Forward request to cc-cache backend
     async fn forward_to_backend(&self, data: &[u8], stream: Option<TcpStream>) -> Result<Vec<u8>, GateError> {
-        let host = self.backend_host.read().clone();
-        let port = *self.backend_port.read();
+        let (host, port, agent) = self.resolve_backend_for_request(data);
 
-        println!("🔄 Forwarding AI API request to cc-cache backend at {}:{}", host, port);
+        if let Some(agent) = agent {
+            println!(
+                "🔄 Forwarding AI API request to agent-scoped cc-cache backend {} at {}:{}",
+                agent, host, port
+            );
+        } else {
+            println!("🔄 Forwarding AI API request to cc-cache backend at {}:{}", host, port);
+        }
 
         // Connect to backend
         let mut backend_stream = TcpStream::connect(format!("{}:{}", host, port)).await
@@ -218,10 +293,23 @@ impl CCCacheGate {
                 15, r#"{"status":"ok"}"#
             )
         } else if data_str.contains("GET /status") {
-            let status = format!(
-                r#"{{"cccache":{{"enabled":{},"backend":"{}:{}","static_port":{}}}}}"#,
-                config.enabled, config.backend_host, config.backend_port, config.static_port
-            );
+            let routes = self
+                .agent_backends
+                .read()
+                .iter()
+                .map(|(agent, (host, port))| {
+                    json!({"agent": agent, "backend": format!("{}:{}", host, port)})
+                })
+                .collect::<Vec<_>>();
+            let status = json!({
+                "cccache": {
+                    "enabled": config.enabled,
+                    "backend": format!("{}:{}", config.backend_host, config.backend_port),
+                    "static_port": config.static_port,
+                    "agent_routes": routes
+                }
+            })
+            .to_string();
             format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
                 status.len(), status
@@ -267,6 +355,25 @@ impl CCCacheGate {
             )),
         }
     }
+}
+
+fn normalize_agent_id(raw: &str) -> String {
+    raw.trim().trim_matches('/').to_ascii_lowercase()
+}
+
+fn extract_agent_from_path(path: &str) -> Option<String> {
+    let normalized = path.trim().trim_matches('/');
+    let mut segments = normalized.split('/');
+    while let Some(segment) = segments.next() {
+        if segment.eq_ignore_ascii_case("agents") {
+            let next = segments.next()?;
+            let agent = normalize_agent_id(next);
+            if !agent.is_empty() {
+                return Some(agent);
+            }
+        }
+    }
+    None
 }
 
 #[async_trait]
@@ -381,5 +488,31 @@ mod tests {
         assert!(config.enabled);
         assert_eq!(config.backend_port, 9527);
         assert_eq!(config.static_port, 8888);
+    }
+
+    #[test]
+    fn cc_cache_extracts_agent_from_header() {
+        let gate = CCCacheGate::new();
+        let request = b"POST /v1/chat/completions HTTP/1.1\r\nx-agent-target: alpha\r\n\r\n";
+        assert_eq!(gate.extract_target_agent(request).as_deref(), Some("alpha"));
+    }
+
+    #[test]
+    fn cc_cache_extracts_agent_from_path() {
+        let gate = CCCacheGate::new();
+        let request = b"POST /agents/oracle/v1/chat/completions HTTP/1.1\r\n\r\n";
+        assert_eq!(gate.extract_target_agent(request).as_deref(), Some("oracle"));
+    }
+
+    #[test]
+    fn cc_cache_uses_agent_specific_backend_route() {
+        let gate = CCCacheGate::new();
+        gate.set_backend("127.0.0.1", 9527);
+        gate.set_agent_backend("oracle", "127.0.0.2", 9530);
+        let request = b"POST /v1/chat/completions HTTP/1.1\r\nx-agent-target: oracle\r\n\r\n";
+        let (host, port, agent) = gate.resolve_backend_for_request(request);
+        assert_eq!(host, "127.0.0.2");
+        assert_eq!(port, 9530);
+        assert_eq!(agent.as_deref(), Some("oracle"));
     }
 }

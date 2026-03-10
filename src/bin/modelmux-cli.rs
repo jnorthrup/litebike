@@ -3,7 +3,7 @@
 //! Provides CLI commands for launching and managing ModelMux instances.
 //! Recognizes argv[0] for automatic mode selection (agent8888, ollama, lmstudio, etc.)
 
-use clap::{Parser, Subcommand, CommandFactory};
+use clap::{Parser, Subcommand};
 use serde_json::json;
 use std::process::Command;
 use std::fs;
@@ -175,6 +175,23 @@ enum ControlActions {
     },
     /// Clear Claude model rewriting
     ClearClaudeRewrite,
+    /// Set provider key policy (keymux override behavior)
+    SetProviderKeyPolicy {
+        provider: String,
+        #[arg(long)]
+        env_key: Option<String>,
+        #[arg(long)]
+        override_env_key: Option<String>,
+        #[arg(long, default_value = "environment_first")]
+        precedence: String,
+    },
+    /// Clear provider key policy for one provider
+    ClearProviderKeyPolicy { provider: String },
+    /// Import provider-key aliases from cc-switch env file (additive)
+    ImportCcSwitchKeysAdditive {
+        #[arg(long)]
+        path: Option<String>,
+    },
     /// Reset runtime overrides to defaults
     Reset,
 }
@@ -392,31 +409,150 @@ fn cmd_stop() {
 fn cmd_status() {
     #[cfg(unix)]
     {
-        let output = Command::new("lsof")
-            .args(["-ti", ":11434"])
-            .output();
-        
+        if let Ok(pid_str) = fs::read_to_string("modelmux.pid") {
+            if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                let alive = Command::new("sh")
+                    .arg("-c")
+                    .arg(format!("kill -0 {} 2>/dev/null", pid))
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+                if alive {
+                    print_running_status(&pid.to_string());
+                    return;
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        let output = Command::new("lsof").args(["-ti", ":11434"]).output();
         if let Ok(out) = output {
             let pid = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if !pid.is_empty() {
-                println!("✓ ModelMux is running");
-                println!("   Port: 11434");
-                println!("   PID:  {}", pid);
-                
-                // Health check
-                if let Ok(resp) = reqwest::blocking::get("http://localhost:11434/health") {
-                    if resp.status().is_success() {
-                        println!("   Health: OK");
-                    } else {
-                        println!("   Health: Unknown");
-                    }
-                }
+                print_running_status(&pid);
                 return;
             }
         }
     }
 
     println!("⚠ ModelMux is not running");
+    println!("   Icon: not available (no menu-bar/tray surface in this build)");
+    print_control_path_hints(false);
+}
+
+fn print_running_status(pid: &str) {
+    println!("✓ ModelMux is running");
+    println!("   Port: 11434");
+    println!("   PID:  {}", pid);
+    println!("   Icon: not available (no menu-bar/tray surface in this build)");
+    let client = reqwest::blocking::Client::new();
+    if let Ok(resp) = client.get("http://localhost:11434/health").send() {
+        if resp.status().is_success() {
+            println!("   Health: OK");
+        } else {
+            println!("   Health: Unknown");
+        }
+    }
+    print_control_state_summary(&client);
+    print_control_path_hints(true);
+}
+
+fn print_control_state_summary(client: &reqwest::blocking::Client) {
+    let response = match client.get("http://localhost:11434/control/state").send() {
+        Ok(resp) => resp,
+        Err(_) => {
+            println!("   Control: unavailable");
+            return;
+        }
+    };
+
+    let state = match response.json::<serde_json::Value>() {
+        Ok(value) => value,
+        Err(_) => {
+            println!("   Control: invalid state payload");
+            return;
+        }
+    };
+
+    let preferred_provider = state
+        .pointer("/routing/preferred_provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("auto");
+    let default_model = state
+        .pointer("/routing/default_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let fallback_model = state
+        .pointer("/routing/fallback_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let streaming_enabled = state
+        .pointer("/streaming/enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let provider_count = state
+        .get("providers")
+        .and_then(|v| v.as_array())
+        .map(|providers| providers.len())
+        .unwrap_or(0);
+
+    let key_states = state
+        .pointer("/keymux/provider_keys")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let key_present_count = key_states
+        .iter()
+        .filter(|entry| {
+            entry
+                .get("key_present")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        })
+        .count();
+    let trading_key_ready = key_states.iter().any(|entry| {
+        let key_present = entry
+            .get("key_present")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let selected = entry
+            .get("selected_env_key")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        key_present && looks_like_trading_env_key(selected)
+    });
+
+    println!(
+        "   Control: provider={} default={} fallback={} streaming={}",
+        preferred_provider, default_model, fallback_model, streaming_enabled
+    );
+    println!(
+        "   Keymux: {} configured key(s) across {} provider slot(s)",
+        key_present_count,
+        key_states.len()
+    );
+    println!(
+        "   Trading path key signal: {}",
+        if trading_key_ready { "present" } else { "not detected" }
+    );
+    println!("   Providers discovered: {}", provider_count);
+}
+
+fn looks_like_trading_env_key(env_key: &str) -> bool {
+    let upper = env_key.to_ascii_uppercase();
+    upper.contains("TRADE") || upper.contains("TRADING") || upper.contains("EXCHANGE") || upper.contains("BINANCE")
+}
+
+fn print_control_path_hints(running: bool) {
+    if running {
+        println!("   Control path: modelmux control state");
+        println!("   Proxy test: modelmux test");
+    } else {
+        println!("   Control path: start first, then run `modelmux control state`");
+        println!("   Proxy test: start first, then run `modelmux test`");
+    }
 }
 
 fn cmd_logs(lines: usize) {
@@ -829,6 +965,32 @@ fn cmd_control(action: &ControlActions) {
         }
         ControlActions::ClearClaudeRewrite => {
             post_control_action(&client, json!({"action": "clear_claude_rewrite_policy"}));
+        }
+        ControlActions::SetProviderKeyPolicy {
+            provider,
+            env_key,
+            override_env_key,
+            precedence,
+        } => {
+            post_control_action(&client, json!({
+                "action": "set_provider_key_policy",
+                "provider": provider,
+                "env_key": env_key,
+                "override_env_key": override_env_key,
+                "precedence": precedence,
+            }));
+        }
+        ControlActions::ClearProviderKeyPolicy { provider } => {
+            post_control_action(&client, json!({
+                "action": "clear_provider_key_policy",
+                "provider": provider,
+            }));
+        }
+        ControlActions::ImportCcSwitchKeysAdditive { path } => {
+            post_control_action(&client, json!({
+                "action": "import_cc_switch_keys_additive",
+                "path": path,
+            }));
         }
         ControlActions::Reset => {
             post_control_action(&client, json!({"action": "reset"}));

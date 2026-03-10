@@ -2,6 +2,7 @@ use crate::dsel;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use super::proxy::ProxyConfig;
 
@@ -68,12 +69,156 @@ pub struct ClaudeModelRewritePolicy {
     pub reasoning_model: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderKeyPrecedence {
+    EnvironmentFirst,
+    OverrideFirst,
+    EnvironmentOnly,
+    OverrideOnly,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderKeySource {
+    Environment,
+    Override,
+    Missing,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderKeyPolicy {
+    pub provider: String,
+    pub env_key: Option<String>,
+    pub override_env_key: Option<String>,
+    pub precedence: ProviderKeyPrecedence,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderKeyResolutionState {
+    pub provider: String,
+    pub env_key: Option<String>,
+    pub override_env_key: Option<String>,
+    pub precedence: ProviderKeyPrecedence,
+    pub selected_source: ProviderKeySource,
+    pub selected_env_key: Option<String>,
+    pub key_present: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewayKeymuxState {
+    pub strategy: String,
+    pub provider_keys: Vec<ProviderKeyResolutionState>,
+}
+
+pub trait ProviderKeyPolicyResolver: Send + Sync {
+    fn resolve_policy(&self, policy: &ProviderKeyPolicy) -> ProviderKeyResolutionState;
+
+    fn strategy_name(&self) -> &'static str {
+        "default"
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DefaultProviderKeyPolicyResolver;
+
+impl ProviderKeyPolicyResolver for DefaultProviderKeyPolicyResolver {
+    fn resolve_policy(&self, policy: &ProviderKeyPolicy) -> ProviderKeyResolutionState {
+        let env_present = policy
+            .env_key
+            .as_deref()
+            .is_some_and(env_key_present_and_nonempty);
+        let override_present = policy
+            .override_env_key
+            .as_deref()
+            .is_some_and(env_key_present_and_nonempty);
+
+        let (selected_source, selected_env_key, key_present) = match policy.precedence {
+            ProviderKeyPrecedence::EnvironmentFirst => {
+                if env_present {
+                    (
+                        ProviderKeySource::Environment,
+                        policy.env_key.clone(),
+                        true,
+                    )
+                } else if override_present {
+                    (
+                        ProviderKeySource::Override,
+                        policy.override_env_key.clone(),
+                        true,
+                    )
+                } else {
+                    (ProviderKeySource::Missing, None, false)
+                }
+            }
+            ProviderKeyPrecedence::OverrideFirst => {
+                if override_present {
+                    (
+                        ProviderKeySource::Override,
+                        policy.override_env_key.clone(),
+                        true,
+                    )
+                } else if env_present {
+                    (
+                        ProviderKeySource::Environment,
+                        policy.env_key.clone(),
+                        true,
+                    )
+                } else {
+                    (ProviderKeySource::Missing, None, false)
+                }
+            }
+            ProviderKeyPrecedence::EnvironmentOnly => {
+                if env_present {
+                    (
+                        ProviderKeySource::Environment,
+                        policy.env_key.clone(),
+                        true,
+                    )
+                } else {
+                    (
+                        ProviderKeySource::Missing,
+                        policy.env_key.clone(),
+                        false,
+                    )
+                }
+            }
+            ProviderKeyPrecedence::OverrideOnly => {
+                if override_present {
+                    (
+                        ProviderKeySource::Override,
+                        policy.override_env_key.clone(),
+                        true,
+                    )
+                } else {
+                    (
+                        ProviderKeySource::Missing,
+                        policy.override_env_key.clone(),
+                        false,
+                    )
+                }
+            }
+        };
+
+        ProviderKeyResolutionState {
+            provider: policy.provider.clone(),
+            env_key: policy.env_key.clone(),
+            override_env_key: policy.override_env_key.clone(),
+            precedence: policy.precedence,
+            selected_source,
+            selected_env_key,
+            key_present,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GatewayControlState {
     pub transport: GatewayTransportState,
     pub routing: GatewayRoutingState,
     pub streaming: GatewayStreamingState,
     pub claude_model_rewrite: ClaudeModelRewritePolicy,
+    pub keymux: GatewayKeymuxState,
     pub providers: Vec<GatewayProviderStatus>,
 }
 
@@ -84,6 +229,7 @@ pub struct GatewayRuntimeControl {
     pub fallback_model: Option<String>,
     pub streaming_enabled: bool,
     pub claude_model_rewrite: ClaudeModelRewritePolicy,
+    pub provider_key_policies: BTreeMap<String, ProviderKeyPolicy>,
 }
 
 impl GatewayRuntimeControl {
@@ -131,6 +277,7 @@ impl GatewayRuntimeControl {
             fallback_model,
             streaming_enabled: config.enable_streaming,
             claude_model_rewrite: rewrite,
+            provider_key_policies: BTreeMap::new(),
         }
     }
 
@@ -140,7 +287,7 @@ impl GatewayRuntimeControl {
             quota_map.insert(provider, (used, remaining, confidence));
         }
 
-        let providers = dsel::discover_providers()
+        let providers: Vec<GatewayProviderStatus> = dsel::discover_providers()
             .into_iter()
             .map(|provider| {
                 let (used, remaining, confidence) = quota_map
@@ -161,6 +308,7 @@ impl GatewayRuntimeControl {
                 }
             })
             .collect();
+        let keymux = self.snapshot_keymux_state(&providers);
 
         GatewayControlState {
             transport: GatewayTransportState {
@@ -187,6 +335,7 @@ impl GatewayRuntimeControl {
                 },
             },
             claude_model_rewrite: self.claude_model_rewrite.clone(),
+            keymux,
             providers,
         }
     }
@@ -242,6 +391,38 @@ impl GatewayRuntimeControl {
                     opus_model: None,
                     reasoning_model: None,
                 };
+            }
+            GatewayControlAction::SetProviderKeyPolicy {
+                provider,
+                env_key,
+                override_env_key,
+                precedence,
+            } => {
+                let provider = normalize_provider_id(provider)?;
+                let env_key = normalize_env_key_name(env_key)?;
+                let override_env_key = normalize_env_key_name(override_env_key)?;
+                if env_key.is_none() && override_env_key.is_none() {
+                    return Err(
+                        "Provider key policy requires env_key or override_env_key".to_string(),
+                    );
+                }
+
+                self.provider_key_policies.insert(
+                    provider.clone(),
+                    ProviderKeyPolicy {
+                        provider,
+                        env_key,
+                        override_env_key,
+                        precedence,
+                    },
+                );
+            }
+            GatewayControlAction::ClearProviderKeyPolicy { provider } => {
+                let provider = normalize_provider_id(provider)?;
+                self.provider_key_policies.remove(&provider);
+            }
+            GatewayControlAction::ImportCcSwitchKeysAdditive { path } => {
+                self.import_cc_switch_keys_additive(path)?;
             }
             GatewayControlAction::Reset => {
                 *self = Self::from_config(config_defaults());
@@ -304,6 +485,84 @@ impl GatewayRuntimeControl {
         }
         Some(mapped)
     }
+
+    fn snapshot_keymux_state(&self, providers: &[GatewayProviderStatus]) -> GatewayKeymuxState {
+        let mut merged = BTreeMap::new();
+        for provider in providers {
+            merged.insert(
+                provider.name.to_ascii_lowercase(),
+                ProviderKeyPolicy {
+                    provider: provider.name.to_ascii_lowercase(),
+                    env_key: normalize_env_key_name(Some(provider.key_env.clone()))
+                        .unwrap_or(None),
+                    override_env_key: None,
+                    precedence: ProviderKeyPrecedence::EnvironmentFirst,
+                },
+            );
+        }
+
+        for (provider, policy) in &self.provider_key_policies {
+            merged.insert(provider.to_ascii_lowercase(), policy.clone());
+        }
+
+        let resolver = DefaultProviderKeyPolicyResolver;
+        let provider_keys = merged
+            .into_values()
+            .map(|policy| resolver.resolve_policy(&policy))
+            .collect();
+
+        GatewayKeymuxState {
+            strategy: resolver.strategy_name().to_string(),
+            provider_keys,
+        }
+    }
+
+    fn import_cc_switch_keys_additive(&mut self, path: Option<String>) -> Result<usize, String> {
+        let source_path = resolve_cc_switch_config_path(path)?;
+        let source = std::fs::read_to_string(&source_path)
+            .map_err(|e| format!("failed to read {}: {}", source_path.display(), e))?;
+        let parsed: Value =
+            serde_json::from_str(&source).map_err(|e| format!("invalid cc-switch JSON: {}", e))?;
+        let records = extract_cc_switch_provider_env_records(&parsed);
+
+        let mut imported_count = 0usize;
+        for record in records {
+            let mut first_key: Option<String> = None;
+            for (env_key, env_value) in &record.env_pairs {
+                if env_value.trim().is_empty() {
+                    continue;
+                }
+                // Additive import: inject cc-switch key material into runtime env.
+                unsafe {
+                    std::env::set_var(env_key, env_value);
+                }
+                if first_key.is_none() {
+                    first_key = Some(env_key.clone());
+                }
+                imported_count += 1;
+            }
+
+            let Some(env_key) = first_key else {
+                continue;
+            };
+
+            self.provider_key_policies
+                .entry(record.provider.clone())
+                .and_modify(|policy| {
+                    if policy.env_key.is_none() {
+                        policy.env_key = Some(env_key.clone());
+                    }
+                })
+                .or_insert(ProviderKeyPolicy {
+                    provider: record.provider,
+                    env_key: Some(env_key),
+                    override_env_key: None,
+                    precedence: ProviderKeyPrecedence::EnvironmentFirst,
+                });
+        }
+
+        Ok(imported_count)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -325,6 +584,14 @@ pub enum GatewayControlAction {
         reasoning_model: Option<String>,
     },
     ClearClaudeRewritePolicy,
+    SetProviderKeyPolicy {
+        provider: String,
+        env_key: Option<String>,
+        override_env_key: Option<String>,
+        precedence: ProviderKeyPrecedence,
+    },
+    ClearProviderKeyPolicy { provider: String },
+    ImportCcSwitchKeysAdditive { path: Option<String> },
     Reset,
 }
 
@@ -348,6 +615,33 @@ fn normalize_optional(input: Option<String>) -> Option<String> {
     })
 }
 
+fn normalize_provider_id(provider: String) -> Result<String, String> {
+    let provider = provider.trim().to_ascii_lowercase();
+    if provider.is_empty() {
+        Err("provider must not be empty".to_string())
+    } else {
+        Ok(provider)
+    }
+}
+
+fn normalize_env_key_name(input: Option<String>) -> Result<Option<String>, String> {
+    let Some(value) = normalize_optional(input) else {
+        return Ok(None);
+    };
+
+    if !value
+        .chars()
+        .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '_')
+    {
+        return Err(format!(
+            "invalid env key '{}': expected [A-Z0-9_]+",
+            value
+        ));
+    }
+
+    Ok(Some(value))
+}
+
 fn env_string(key: &str) -> Option<String> {
     std::env::var(key).ok().and_then(|v| normalize_optional(Some(v)))
 }
@@ -365,6 +659,13 @@ fn bool_env(key: &str) -> Option<bool> {
             _ => None,
         }
     })
+}
+
+fn env_key_present_and_nonempty(key: &str) -> bool {
+    std::env::var(key)
+        .ok()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
 }
 
 fn infer_provider_family(provider: &str, base_url: &str) -> GatewayFacadeFamily {
@@ -422,6 +723,104 @@ fn has_thinking_enabled(request: &Value) -> bool {
             .and_then(|t| t.as_str()),
         Some("enabled") | Some("adaptive")
     )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CcSwitchProviderEnvRecord {
+    provider: String,
+    env_pairs: Vec<(String, String)>,
+}
+
+fn resolve_cc_switch_config_path(path: Option<String>) -> Result<PathBuf, String> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(path) = normalize_optional(path) {
+        candidates.push(PathBuf::from(path));
+    }
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(home.join(".cc-switch/config.json"));
+        candidates.push(home.join(".cc-switch/config.json.migrated"));
+        candidates.push(home.join(".cc-switch/config.json.bak"));
+    }
+
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.exists())
+        .ok_or_else(|| "no cc-switch config file found".to_string())
+}
+
+fn extract_cc_switch_provider_env_records(root: &Value) -> Vec<CcSwitchProviderEnvRecord> {
+    let mut records = Vec::new();
+    let Some(apps) = root.as_object() else {
+        return records;
+    };
+
+    for app_value in apps.values() {
+        let Some(providers) = app_value
+            .get("providers")
+            .and_then(Value::as_object)
+        else {
+            continue;
+        };
+
+        for (provider_id, provider_value) in providers {
+            let name = provider_value
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or(provider_id);
+            let provider = slugify_provider_name(name);
+            if provider.is_empty() {
+                continue;
+            }
+
+            let Some(env) = provider_value
+                .get("settingsConfig")
+                .and_then(|v| v.get("env"))
+                .and_then(Value::as_object)
+            else {
+                continue;
+            };
+
+            let mut env_pairs = Vec::new();
+            for (key, value) in env {
+                if !looks_like_key_material_name(key) {
+                    continue;
+                }
+                if let Some(secret) = value.as_str() {
+                    let key = key.trim().to_ascii_uppercase();
+                    env_pairs.push((key, secret.to_string()));
+                }
+            }
+
+            if !env_pairs.is_empty() {
+                records.push(CcSwitchProviderEnvRecord {
+                    provider,
+                    env_pairs,
+                });
+            }
+        }
+    }
+
+    records
+}
+
+fn slugify_provider_name(name: &str) -> String {
+    let mut out = String::new();
+    let mut prev_is_sep = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            prev_is_sep = false;
+        } else if !prev_is_sep {
+            out.push('_');
+            prev_is_sep = true;
+        }
+    }
+    out.trim_matches('_').to_string()
+}
+
+fn looks_like_key_material_name(key: &str) -> bool {
+    let key = key.trim().to_ascii_uppercase();
+    key.ends_with("_API_KEY") || key.ends_with("_AUTH_TOKEN")
 }
 
 #[cfg(test)]
@@ -510,5 +909,106 @@ mod tests {
             serde_json::from_value(json!({ "action": "clear_claude_rewrite_policy" })).unwrap();
 
         assert_eq!(action, GatewayControlAction::ClearClaudeRewritePolicy);
+    }
+
+    #[test]
+    fn provider_key_policy_action_sets_precedence_state() {
+        let mut control = GatewayRuntimeControl::from_config(&config());
+        control
+            .apply_action(GatewayControlAction::SetProviderKeyPolicy {
+                provider: "openai".to_string(),
+                env_key: Some("OPENAI_API_KEY".to_string()),
+                override_env_key: Some("OPENAI_API_KEY_OVERRIDE".to_string()),
+                precedence: ProviderKeyPrecedence::OverrideFirst,
+            })
+            .unwrap();
+
+        let state = control.snapshot(&config());
+        let openai = state
+            .keymux
+            .provider_keys
+            .iter()
+            .find(|entry| entry.provider == "openai")
+            .expect("openai key policy present");
+        assert_eq!(openai.precedence, ProviderKeyPrecedence::OverrideFirst);
+        assert_eq!(
+            openai.override_env_key.as_deref(),
+            Some("OPENAI_API_KEY_OVERRIDE")
+        );
+    }
+
+    #[test]
+    fn provider_key_policy_rejects_invalid_env_name() {
+        let mut control = GatewayRuntimeControl::from_config(&config());
+        let result = control.apply_action(GatewayControlAction::SetProviderKeyPolicy {
+            provider: "openai".to_string(),
+            env_key: Some("openai_api_key".to_string()),
+            override_env_key: None,
+            precedence: ProviderKeyPrecedence::EnvironmentFirst,
+        });
+        assert!(result.is_err());
+        assert!(
+            result
+                .err()
+                .unwrap_or_default()
+                .contains("expected [A-Z0-9_]+")
+        );
+    }
+
+    #[test]
+    fn extract_cc_switch_provider_env_records_reads_provider_env_keys() {
+        let value = json!({
+            "version": 2,
+            "claude": {
+                "providers": {
+                    "p1": {
+                        "name": "Kimi Code US",
+                        "settingsConfig": {
+                            "env": {
+                                "ANTHROPIC_AUTH_TOKEN": "sk-1",
+                                "ANTHROPIC_BASE_URL": "https://api.kimi.com/coding"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let records = extract_cc_switch_provider_env_records(&value);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].provider, "kimi_code_us");
+        assert_eq!(records[0].env_pairs.len(), 1);
+        assert_eq!(records[0].env_pairs[0].0, "ANTHROPIC_AUTH_TOKEN");
+    }
+
+    #[test]
+    fn import_cc_switch_keys_additive_populates_policy_map() {
+        let temp = tempfile::NamedTempFile::new().expect("tmp file");
+        std::fs::write(
+            temp.path(),
+            r#"{
+                "version": 2,
+                "codex": {
+                    "providers": {
+                        "p2": {
+                            "name": "OpenAI Main",
+                            "settingsConfig": {
+                                "env": {
+                                    "OPENAI_API_KEY": "sk-test-imported"
+                                }
+                            }
+                        }
+                    }
+                }
+            }"#,
+        )
+        .expect("write cc-switch sample");
+
+        let mut control = GatewayRuntimeControl::from_config(&config());
+        let imported = control
+            .import_cc_switch_keys_additive(Some(temp.path().display().to_string()))
+            .expect("import keys");
+        assert_eq!(imported, 1);
+        assert!(control.provider_key_policies.contains_key("openai_main"));
     }
 }
