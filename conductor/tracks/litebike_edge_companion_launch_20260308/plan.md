@@ -4,8 +4,8 @@
 
 ## Phase 1: Boundary Lock
 
-- [ ] Inventory the currently shipped `litebike` edge-facing capabilities.
-- [ ] Remove or supersede stale positioning that treats `literbike` as a future
+- [x] Inventory the currently shipped `litebike` edge-facing capabilities.
+- [x] Remove or supersede stale positioning that treats `literbike` as a future
   fork target instead of the current companion.
 - [x] Define the shortest accurate sentence for the repo split:
   `litebike` as primary shell/runtime, `literbike` as gated heart/backplane.
@@ -23,17 +23,17 @@
 - [x] Improve `modelmux status` control-path UX by printing runtime control summary,
   keymux key presence, and explicit next commands (`modelmux control state`,
   `modelmux test`) instead of a dead-end icon-only status note.
-- [ ] Confirm the launch story matches current commands, modules, and proxy
+- [x] Confirm the launch story matches current commands, modules, and proxy
   behavior in the repo.
-- [ ] Call out the constrained-host and local-edge deployment advantages.
-- [ ] Identify any missing packaging or startup notes that block a clean launch.
+- [x] Call out the constrained-host and local-edge deployment advantages.
+- [x] Identify any missing packaging or startup notes that block a clean launch.
 
 ## Phase 4: Companion Alignment
 
 - [x] Cross-reference the matching `literbike` launch track.
-- [ ] Make the boundary crisp enough that future work can be triaged into the
+- [x] Make the boundary crisp enough that future work can be triaged into the
   correct repo without ambiguity.
-- [ ] Keep `litebike` scope narrow during launch hardening while preserving
+- [x] Keep `litebike` scope narrow during launch hardening while preserving
   shell ownership.
 
 ## Course Correction Notes
@@ -51,3 +51,17 @@
   `litebike` as the small shell/operator front door, including the
   `client/app -> litebike agent8888 -> literbike` deployment path and explicit
   `literbike` heart/backplane wording.
+- 2026-03-10: `README.md` now documents the native macOS operator bar build,
+  install, signing, remote-action environment, and first-launch workflow so the
+  packaging/startup launch notes no longer live only in scripts and source.
+- 2026-03-10: `README.md` now ties the launch story to the actual repo surfaces:
+  constrained-host/direct-syscall deployment, lightweight proxy mode vs
+  `agent8888`/modelmux on port `8888`, and operator-bar remote-host fallback
+  behavior.
+- 2026-03-10: `README.md` now states the repo boundary directly: `litebike`
+  owns the shell, syscall utilities, proxy mode, `agent8888`/modelmux entry,
+  and operator actions, while `literbike` is the optional backplane for the
+  heavier transport and service runtime.
+- 2026-03-10: `PRODUCTION_STATUS.md` now inventories the shipped edge-facing
+  surfaces and removes stale `8080`/proof-of-concept/broken-main-binary
+  positioning so launch materials match the current shell/backplane doctrine.

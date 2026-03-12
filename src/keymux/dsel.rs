@@ -135,6 +135,50 @@ pub struct NvidiaConfig {
     pub current_ledger: ProviderTokenLedger,
 }
 
+/// Moonshot (Kimi) provider configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MoonshotConfig {
+    pub api_key: Option<String>,
+    pub base_url: String,
+    pub estimated_daily_limit: u64,
+    pub api_check_interval: u64,
+    pub last_api_check: i64,
+    pub current_ledger: ProviderTokenLedger,
+}
+
+/// Groq provider configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroqConfig {
+    pub api_key: Option<String>,
+    pub base_url: String,
+    pub estimated_daily_limit: u64,
+    pub api_check_interval: u64,
+    pub last_api_check: i64,
+    pub current_ledger: ProviderTokenLedger,
+}
+
+/// xAI (Grok) provider configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XAIConfig {
+    pub api_key: Option<String>,
+    pub base_url: String,
+    pub estimated_daily_limit: u64,
+    pub api_check_interval: u64,
+    pub last_api_check: i64,
+    pub current_ledger: ProviderTokenLedger,
+}
+
+/// Cerebras provider configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CerebrasConfig {
+    pub api_key: Option<String>,
+    pub base_url: String,
+    pub estimated_daily_limit: u64,
+    pub api_check_interval: u64,
+    pub last_api_check: i64,
+    pub current_ledger: ProviderTokenLedger,
+}
+
 impl ProviderPotential {
     pub fn new(
         name: &str,
@@ -997,7 +1041,7 @@ impl RuleEngine {
         log::info!("DSEL: Token ledger enabled");
 
         // Initialize quota tracking for specific providers
-        let providers = vec!["kilo_code", "opencode", "openrouter", "nvidia"];
+        let providers = vec!["kilo_code", "opencode", "openrouter", "nvidia", "moonshot", "groq", "xai", "cerebras"];
         let provider_count = providers.len();
         for provider in &providers {
             self.quota_tracking.insert(
@@ -1011,6 +1055,10 @@ impl RuleEngine {
                         "opencode" => 500_000,
                         "openrouter" => 2_000_000,
                         "nvidia" => 3_000_000,
+                        "moonshot" => 1_500_000, // Moonshot/Kimi typical quota
+                        "groq" => 2_000_000,    // Groq typical quota
+                        "xai" => 1_500_000,     // xAI/Grok typical quota
+                        "cerebras" => 2_000_000, // Cerebras typical quota
                         _ => 0,
                     },
                     quota_confidence: 0.8,
@@ -1048,6 +1096,10 @@ impl RuleEngine {
                     "opencode" => 500_000,
                     "openrouter" => 2_000_000,
                     "nvidia" => 3_000_000,
+                    "moonshot" => 1_500_000,
+                    "groq" => 2_000_000,
+                    "xai" => 1_500_000,
+                    "cerebras" => 2_000_000,
                     _ => 100_000, // Default for unknown providers
                 },
                 quota_confidence: 0.7,
@@ -1117,6 +1169,10 @@ impl RuleEngine {
                 "opencode" => 500_000,
                 "openrouter" => 2_000_000,
                 "nvidia" => 3_000_000,
+                "moonshot" => 1_500_000,
+                "groq" => 2_000_000,
+                "xai" => 1_500_000,
+                "cerebras" => 2_000_000,
                 _ => tracking.estimated_remaining_quota,
             };
             tracking.quota_confidence = 0.8;

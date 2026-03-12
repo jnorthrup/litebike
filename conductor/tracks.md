@@ -2,8 +2,8 @@
 
 This file orchestrates the "Creeping Vine" transport and "Dystopian Holdout" control plane.
 
-**Last Updated:** 2026-03-10  
-**Overall Completion:** 44/203 tasks (21.7%) → Target: 100% on context-resident tasks
+**Last Updated:** 2026-03-11  
+**Overall Completion:** 54/203 tasks (26.6%) → Target: 100% on context-resident tasks
 
 ---
 
@@ -14,9 +14,9 @@ This file orchestrates the "Creeping Vine" transport and "Dystopian Holdout" con
 
 ---
 
-## [~] Track: Litebike Edge Companion Launch 🔄 IN PROGRESS
+## [x] Track: Litebike Edge Companion Launch ✅ 100% COMPLETE
 - **Objective:** Lock launch truth so `litebike` remains the primary runtime shell/operator surface and `literbike` is treated as the gated heart/backplane imported into it.
-- **Status:** Boundary truth corrected in both repos; README launch narrative published; packaging alignment still open
+- **Status:** Launch truth, operational fit, owner split, and shipped-edge inventory are aligned to the current shell/backplane doctrine
 - **Priority:** High
 - **Link:** [./tracks/litebike_edge_companion_launch_20260308/](./tracks/litebike_edge_companion_launch_20260308/)
 
@@ -38,9 +38,9 @@ This file orchestrates the "Creeping Vine" transport and "Dystopian Holdout" con
 
 ---
 
-## [~] Track: N-Way API Conversion Layer 🔄 85% COMPLETE
-- **Objective:** Unified API translation between all major AI providers (OpenAI, Anthropic, Gemini, DeepSeek, WebSearch).
-- **Status:** Phase 1 complete, all modules implemented
+## [~] Track: N-Way API Conversion Layer 🔄 88% COMPLETE
+- **Objective:** Unified API translation between all major AI providers, with quota-aware provider surfaces carried into `litebike`.
+- **Status:** Phase 1 remains complete; Moonshot/Kimi plus Groq have `keymux` quota-tracking parity, and xAI/Grok plus Cerebras now have `keymux` DSEL quota scaffolding while token-ledger follow-through remains open
 - **Priority:** High
 - **Link:** [./tracks/nway-api-conversion-20260304/](./tracks/nway-api-conversion-20260304/)
 

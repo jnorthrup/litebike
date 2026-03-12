@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, Utc};
 
-use super::dsel::{ProviderTokenLedger, ProviderApiStatus, VagueQuota, QuotaSource, KiloCodeConfig, OpenCodeConfig, OpenRouterConfig, NvidiaConfig};
+use super::dsel::{ProviderTokenLedger, ProviderApiStatus, VagueQuota, QuotaSource, KiloCodeConfig, OpenCodeConfig, OpenRouterConfig, NvidiaConfig, MoonshotConfig, GroqConfig};
 
 /// Manager for tracking token usage across providers
 pub struct TokenLedgerManager {
@@ -22,6 +22,8 @@ pub struct ProviderConfigs {
     pub opencode: Option<OpenCodeConfig>,
     pub openrouter: Option<OpenRouterConfig>,
     pub nvidia: Option<NvidiaConfig>,
+    pub moonshot: Option<MoonshotConfig>,
+    pub groq: Option<GroqConfig>,
 }
 
 impl TokenLedgerManager {
@@ -33,6 +35,8 @@ impl TokenLedgerManager {
                 opencode: None,
                 openrouter: None,
                 nvidia: None,
+                moonshot: None,
+                groq: None,
             },
         }
     }
@@ -142,6 +146,58 @@ impl TokenLedgerManager {
             };
             self.provider_configs.nvidia = Some(config);
         }
+
+        // Moonshot (Kimi) Configuration
+        if let Some(api_key) = api_keys.get("moonshot") {
+            let config = MoonshotConfig {
+                api_key: Some(api_key.clone()),
+                base_url: "https://api.moonshot.cn/v1".to_string(),
+                estimated_daily_limit: 1_500_000, // Moonshot/Kimi typical quota
+                api_check_interval: 3600, // Check every hour
+                last_api_check: 0,
+                current_ledger: ProviderTokenLedger {
+                    provider_name: "moonshot".to_string(),
+                    total_tokens_used: 0,
+                    tokens_used_today: 0,
+                    tokens_used_this_hour: 0,
+                    last_api_check: None,
+                    api_status: ProviderApiStatus::Unknown,
+                    vague_quota_remaining: Some(VagueQuota {
+                        estimated_remaining: 1_500_000,
+                        confidence: 0.7,
+                        last_updated: Self::current_timestamp(),
+                        source: QuotaSource::ManualConfiguration,
+                    }),
+                },
+            };
+            self.provider_configs.moonshot = Some(config);
+        }
+
+        // Groq Configuration
+        if let Some(api_key) = api_keys.get("groq") {
+            let config = GroqConfig {
+                api_key: Some(api_key.clone()),
+                base_url: "https://api.groq.com/openai/v1".to_string(),
+                estimated_daily_limit: 2_000_000, // Groq typical quota
+                api_check_interval: 3600, // Check every hour
+                last_api_check: 0,
+                current_ledger: ProviderTokenLedger {
+                    provider_name: "groq".to_string(),
+                    total_tokens_used: 0,
+                    tokens_used_today: 0,
+                    tokens_used_this_hour: 0,
+                    last_api_check: None,
+                    api_status: ProviderApiStatus::Unknown,
+                    vague_quota_remaining: Some(VagueQuota {
+                        estimated_remaining: 2_000_000,
+                        confidence: 0.8,
+                        last_updated: Self::current_timestamp(),
+                        source: QuotaSource::ManualConfiguration,
+                    }),
+                },
+            };
+            self.provider_configs.groq = Some(config);
+        }
     }
 
     /// Track token usage for a provider
@@ -233,6 +289,54 @@ impl TokenLedgerManager {
                     }
                 }
             }
+            "moonshot" => {
+                if let Some(config) = &self.provider_configs.moonshot {
+                    if let Some(api_key) = &config.api_key {
+                        let status = self.check_moonshot_api(api_key).await?;
+                        
+                        // Update ledger
+                        if let Some(ledger) = self.ledgers.get_mut(provider) {
+                            ledger.last_api_check = Some(current_time);
+                            ledger.api_status = status.clone();
+                            
+                            // Update vague quota from API response
+                            let estimated_quota = self.estimate_quota_from_api(provider, &status);
+                            ledger.vague_quota_remaining = Some(VagueQuota {
+                                estimated_remaining: estimated_quota,
+                                confidence: 0.8,
+                                last_updated: current_time,
+                                source: QuotaSource::ApiDirect,
+                            });
+                        }
+                        
+                        return Ok(status);
+                    }
+                }
+            }
+            "groq" => {
+                if let Some(config) = &self.provider_configs.groq {
+                    if let Some(api_key) = &config.api_key {
+                        let status = self.check_groq_api(api_key).await?;
+                        
+                        // Update ledger
+                        if let Some(ledger) = self.ledgers.get_mut(provider) {
+                            ledger.last_api_check = Some(current_time);
+                            ledger.api_status = status.clone();
+                            
+                            // Update vague quota from API response
+                            let estimated_quota = self.estimate_quota_from_api(provider, &status);
+                            ledger.vague_quota_remaining = Some(VagueQuota {
+                                estimated_remaining: estimated_quota,
+                                confidence: 0.8,
+                                last_updated: current_time,
+                                source: QuotaSource::ApiDirect,
+                            });
+                        }
+                        
+                        return Ok(status);
+                    }
+                }
+            }
             _ => {
                 return Err(format!("Unknown provider: {}", provider));
             }
@@ -286,6 +390,28 @@ impl TokenLedgerManager {
         Ok(ProviderApiStatus::Healthy)
     }
 
+    /// Check Moonshot API
+    async fn check_moonshot_api(&self, api_key: &str) -> Result<ProviderApiStatus, String> {
+        // Simulate Moonshot API check
+        if let Some(ledger) = self.ledgers.get("moonshot") {
+            if ledger.tokens_used_today > 1_500_000 {
+                return Ok(ProviderApiStatus::RateLimited);
+            }
+        }
+        Ok(ProviderApiStatus::Healthy)
+    }
+
+    /// Check Groq API
+    async fn check_groq_api(&self, api_key: &str) -> Result<ProviderApiStatus, String> {
+        // Simulate Groq API check
+        if let Some(ledger) = self.ledgers.get("groq") {
+            if ledger.tokens_used_today > 2_000_000 {
+                return Ok(ProviderApiStatus::RateLimited);
+            }
+        }
+        Ok(ProviderApiStatus::Healthy)
+    }
+
     /// Estimate quota from API response
     fn estimate_quota_from_api(&self, provider: &str, status: &ProviderApiStatus) -> u64 {
         match status {
@@ -296,6 +422,8 @@ impl TokenLedgerManager {
                     "opencode" => 500_000,
                     "openrouter" => 2_000_000,
                     "nvidia" => 3_000_000,
+                    "moonshot" => 1_500_000,
+                    "groq" => 2_000_000,
                     _ => 0,
                 }
             }
@@ -306,6 +434,8 @@ impl TokenLedgerManager {
                     "opencode" => 250_000,
                     "openrouter" => 1_000_000,
                     "nvidia" => 1_500_000,
+                    "moonshot" => 750_000,
+                    "groq" => 1_000_000,
                     _ => 0,
                 }
             }

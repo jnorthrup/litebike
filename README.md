@@ -1,7 +1,6 @@
 # LiteBike - Edge Proxy and Network Utilities
 
 > **The small shell / operator front door**. `litebike` on port 8888 is the canonical ingress surface that subsumes both repos when `literbike` is present. It provides syscall-driven network tools, protocol detection, and lightweight stacked proxy routing.
-
 > **Gated heart/backplane**: `literbike` runs behind `litebike` as the heavier unified traffic and service runtime.
 
 ![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)
@@ -10,6 +9,8 @@
 ## Overview
 
 `litebike` is the lightweight edge half of a two-repo system. The **`litebike` agent on port 8888** is the canonical ingress/operator surface—clients and apps connect here. When `literbike` is present, `litebike` subsumes both repos: it handles local proxying, interface discovery, Knox-aware handling, and command-line network tooling, delegating heavier transport and service work to `literbike` behind it.
+
+**Constrained-Host / Local-Edge Deployment**: litebike runs lean on devices where resources are limited—Android/Termux, embedded systems, or any host where a full transport stack is impractical. It uses direct syscalls ([`src/syscall_net.rs`](src/syscall_net.rs:1)) for network operations, avoiding `/proc`, `/sys`, or `/dev` dependencies. The proxy mode implements lightweight single-port edge routing: it inspects early bytes, classifies the protocol (HTTP, SOCKS5, TLS, DoH, etc.), and either handles locally or forwards to `literbike` behind it.
 
 - **`litebike`** (port 8888): edge ingress, local proxying, interface discovery, Knox-aware handling, and command-line network tooling — the small shell/operator front door
 - **`literbike`**: the gated heart/backplane — heavier unified traffic and service runtime, including QUIC, API translation, DHT, content-addressed storage, and service adapters
@@ -78,7 +79,7 @@ ip addr
 
 ### Proxy Server Mode
 
-Start litebike as a multi-protocol proxy:
+Start litebike as a multi-protocol proxy (requires `proxy` feature, see [`Cargo.toml:75`](Cargo.toml:75)):
 
 ```bash
 # Default: listen on swlan0:8888, egress via rmnet*
@@ -94,7 +95,8 @@ litebike --proxy --interface wlan0 --egress rmnet0
 RUST_LOG=debug litebike --proxy
 ```
 
-**Supported Protocols** (auto-detected on single port):
+**Supported Protocols** (auto-detected on single port 8888):
+
 - HTTP/HTTPS proxy
 - SOCKS5
 - TLS tunneling
@@ -104,6 +106,8 @@ RUST_LOG=debug litebike --proxy
 - UPnP
 
 This routing layer is intentionally lightweight. It behaves like a stacked edge router: inspect early bytes, classify quickly, then hand traffic to the minimal local handler or forward it toward heavier services behind `literbike`.
+
+**Note**: The proxy mode (port 8888) is separate from the `agent8888` mode. `agent8888` is the modelmux binary invoked as `agent8888`, which auto-starts on port 8888 (see [`src/bin/modelmux-cli.rs:57-59`](src/bin/modelmux-cli.rs:57) and [`lines 203-210`](src/bin/modelmux-cli.rs:203)) as a model multiplexing service. Both run on port 8888 but serve different purposes: proxy mode handles protocol classification and routing, while agent8888 provides the model multiplexing gateway.
 
 ## Configuration
 
@@ -156,7 +160,7 @@ litebike --proxy --origin binance.com --port 8888
 ### List Interfaces
 
 ```rust
-use literbike::syscall_net::list_interfaces;
+use litebike::syscall_net::list_interfaces;
 
 let ifaces = list_interfaces()?;
 for (name, iface) in ifaces {
@@ -167,7 +171,7 @@ for (name, iface) in ifaces {
 ### Get Default Gateway
 
 ```rust
-use literbike::syscall_net::get_default_gateway;
+use litebike::syscall_net::get_default_gateway;
 
 if let Ok(gw) = get_default_gateway() {
     println!("Default gateway: {}", gw);
@@ -177,7 +181,7 @@ if let Ok(gw) = get_default_gateway() {
 ### Get Routes
 
 ```rust
-use literbike::syscall_net::get_routes;
+use litebike::syscall_net::get_routes;
 
 let routes = get_routes()?;
 for route in routes {
@@ -193,7 +197,7 @@ LiteBike intelligently manages network interfaces:
 - **Default Egress**: Mobile data (`rmnet*`) with backoff logic
 - **Fallback**: Automatic interface selection if defaults unavailable
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │                    LiteBike Proxy                        │
 ├─────────────────────────────────────────────────────────┤
@@ -223,6 +227,75 @@ cargo build --release --features proxy
 cargo build --release --no-default-features
 ```
 
+## Native macOS Operator Bar
+
+LiteBike includes a native macOS menu bar application that provides one-click operator actions for build, git, SSH, remote deploy, proxy-bridge, and termux synchronization workflows.
+
+### Building the App Bundle
+
+```bash
+# Build the app bundle
+tools/build_macos_control_plane_app.sh
+
+# Build and install to /Applications
+tools/build_macos_control_plane_app.sh --install
+```
+
+The app bundle is created at `.artifacts/macos/Litebike Operator Bar.app`.
+
+### Optional Install, Sign, and Package
+
+- **Install to /Applications**: Pass `--install` flag
+- **Code signing**: Set `DEVELOPER_ID_APPLICATION` environment variable before running the build script
+- **Create installer package**: Set `DEVELOPER_ID_INSTALLER` environment variable to build a signed `.pkg` installer
+
+```bash
+# Example with signing and packaging
+DEVELOPER_ID_APPLICATION="Developer ID Application: Your Name (TEAMID)" \
+DEVELOPER_ID_INSTALLER="Developer ID Installer: Your Name (TEAMID)" \
+tools/build_macos_control_plane_app.sh
+```
+
+### Environment Variables for Remote Actions
+
+The operator bar passes these environment variables to remote actions. For actions requiring a remote host, if `LB_HOST` or `TERMUX_HOST` is not set, the system falls back to automatic default-gateway resolution (see [`tools/litebike_operator_actions.sh:17-27`](tools/litebike_operator_actions.sh:17)):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LITEBIKE_REPO_ROOT` | script directory | Override the workspace root |
+| `LB_HOST` / `TERMUX_HOST` | auto-detected | Remote host for SSH actions (falls back to default gateway) |
+| `LB_USER` / `TERMUX_USER` | `u0_a471` | Remote SSH username |
+| `LB_SSH_PORT` / `TERMUX_PORT` | `8022` | Remote SSH port |
+| `LB_DIR` | `/opt/litebike` | Remote litebike checkout path |
+| `LB_REMOTE_BUILD_CMD` | `cargo build --release` | Remote build command |
+| `LB_REMOTE_AFTER_BUILD_CMD` | (none) | Optional follow-up command after remote build |
+
+### Operator Bar Actions
+
+The app exposes these actions in the menu bar:
+
+| Action | Description |
+|--------|-------------|
+| Build Release | Run `cargo build --release` in the workspace |
+| Git Push | Push the current branch to origin with upstream tracking |
+| Remote Deploy | Push current branch and build on the remote host |
+| Proxy Status | Inspect proxy-bridge status |
+| Proxy SSH Start | Start the remote proxy over SSH using proxy-bridge |
+| Proxy Stop | Stop local proxy-bridge services |
+| Sync Termux | Fetch the termux remote into local tracking branches |
+| Open SSH Terminal | Open an interactive SSH session in Terminal.app |
+
+### Startup
+
+The app runs as a menu bar status item ("Litebike Operator Bar"). On first launch:
+
+1. The app appears as an icon in the macOS menu bar
+2. Click the icon to open the operator console window
+3. Select your litebike workspace using "Choose Workspace..."
+4. Remote actions use `LB_HOST` or `TERMUX_HOST` if set, otherwise fall back to automatic default-gateway detection
+
+The workspace path is persisted in UserDefaults and survives app restarts.
+
 ## Testing
 
 ```bash
@@ -240,8 +313,8 @@ cargo bench --bench syscall_bench
 
 Syscall-based implementation (no /proc, /sys parsing):
 
-| Operation | literbike | Traditional | Speedup |
-|-----------|-----------|-------------|---------|
+| Operation | litebike | Traditional | Speedup |
+|-----------|----------|-------------|---------|
 | Interface list | 0.3ms | 2.1ms | 7x |
 | Route table | 0.5ms | 3.2ms | 6x |
 | Socket stats | 0.8ms | 5.4ms | 7x |
@@ -249,43 +322,59 @@ Syscall-based implementation (no /proc, /sys parsing):
 ## Deployment Path
 
 ```text
-client/app -> litebike agent8888 (port 8888) -> literbike
+client/app -> litebike:8888 (proxy or utility) -> [optional: literbike backend]
 ```
 
-- **client/app** connects to `litebike` on port 8888 (the canonical ingress)
-- **litebike** (agent8888) is the small shell/operator front door — it handles local port binding, protocol sniffing, edge policy, and interface selection
-- **literbike** (when present) is the gated heart/backplane — it handles transport runtime, service translation, and durable traffic orchestration
+Litebike owns the shell and binary on port 8888:
 
-When `literbike` is running behind `litebike`, `litebike` subsumes both repos: local operations stay local, heavier transport and service work flows through to `literbike`.
+- **litebike proxy mode** (`litebike --proxy`): Protocol classification and edge routing (HTTP, SOCKS5, TLS, DoH). Built with `--features proxy` (see [`Cargo.toml:75`](Cargo.toml:75)).
+- **litebike utilities**: `ifconfig`, `ip`, `route`, `netstat` via [`src/syscall_net.rs`](src/syscall_net.rs:1) — direct syscalls, no /proc/sys dependencies.
+- **agent8888**: Symlink or alias to the `modelmux` binary that auto-starts on port 8888 (see [`src/bin/modelmux-cli.rs:57-59`](src/bin/modelmux-cli.rs:57) and [`lines 203-210`](src/bin/modelmux-cli.rs:203)). This is a model multiplexing gateway, separate from proxy mode.
+- **literbike** (when present): Runs behind litebike as the heavier transport and service runtime (QUIC, API translation, DHT, CAS).
+
+Note: Proxy mode (protocol classification/routing) and agent8888 (modelmux gateway) both use port 8888 but serve different purposes. The shell/binary ownership remains with litebike regardless of which mode is active.
 
 ## Repo Relationship
 
-Use `litebike` when you want:
+**litebike** (this repo) owns:
+
+- The shell/binary and port 8888 surface
+- Syscall-based network utilities ([`src/syscall_net.rs`](src/syscall_net.rs:1)): `list_interfaces`, `get_default_gateway`, `get_routes` — direct libc calls, no /proc/sys parsing
+- Proxy mode with protocol classification (requires `--features proxy`)
+- Model multiplexing gateway (`modelmux` binary, invoked as `agent8888` on port 8888)
+- Operator actions for macOS menu bar ([`tools/litebike_operator_actions.sh`](tools/litebike_operator_actions.sh:1))
+
+**literbike** (companion repo at `/Users/jim/work/literbike`) owns:
+
+- QUIC and transport-heavy runtime
+- Unified traffic and service adapters
+- API translation across providers
+- DHT, CAS, and broader service composition
+
+Use `litebike` when you need:
 
 - Small edge deployment footprint
-- Syscall-only interface and route inspection
+- Syscall-only interface and route inspection (no /proc, /sys, /dev)
 - Unified ingress on a single local port (port 8888)
-- Local protocol classification and lightweight proxy behavior
+- Protocol classification and lightweight proxy behavior
 - The canonical operator surface that subsumes both repos when literbike is present
 
-Use `literbike` when you want:
+Use `literbike` when you need:
 
 - QUIC and transport-heavy runtime behavior
 - Unified traffic and service adapters
 - API translation across providers
 - DHT, CAS, and broader service composition
-- The gated heart/backplane behind litebike's front door
 
 Typical deployment shape:
 
 ```text
 client/app
-  -> litebike (agent8888 on port 8888)
-     - canonical ingress surface
-     - local port binding
-     - protocol sniffing
-     - edge policy and interface selection
-  -> literbike
+  -> litebike:8888 (shell ownership)
+     - proxy mode: protocol classification/routing (with --features proxy)
+     - utilities: ifconfig, ip, route, netstat via syscall_net
+     - agent8888: modelmux gateway (separate from proxy)
+  -> literbike (optional backend)
      - transport runtime
      - service translation
      - durable traffic and service orchestration

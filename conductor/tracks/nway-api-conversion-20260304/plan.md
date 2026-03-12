@@ -1,9 +1,9 @@
 # N-Way API Conversion Layer
 
 **Created:** 2026-03-04  
-**Updated:** 2026-03-04  
-**Status:** Phase 1 ✅ COMPLETE (85%)  
-**Goal:** Unified API translation between all major AI providers
+**Updated:** 2026-03-11  
+**Status:** Phase 3 provider scaffolding extended (88%)  
+**Goal:** Unified API translation between all major AI providers, with quota-aware provider surfaces in `litebike`
 
 ---
 
@@ -28,16 +28,19 @@
 
 ### Phase 3: Additional Providers 🔄 IN PROGRESS
 
-- [ ] Moonshot/Kimi
-- [ ] Groq
-- [ ] xAI/Grok
+- [x] Moonshot/Kimi (`litebike` keymux token-ledger + DSEL parity)
+- [x] Groq (`litebike` keymux token-ledger + DSEL parity)
+- [x] xAI/Grok + Cerebras (`litebike` keymux DSEL quota scaffolding)
+- [ ] xAI/Grok (full token-ledger/API-check parity)
 - [ ] Cohere
 - [ ] Mistral
 - [ ] Perplexity
 - [ ] OpenRouter
 - [ ] NVIDIA
-- [ ] Cerebras
+- [ ] Cerebras (full token-ledger/API-check parity)
 - [ ] HuggingFace
+
+Phase 3 is now started in `litebike`: Moonshot/Kimi and Groq have provider-config structs, token-ledger initialization, API-status checks, and quota-estimation defaults in `src/keymux/dsel.rs` and `src/keymux/token_ledger.rs`. This slice extends `src/keymux/dsel.rs` with xAI/Grok and Cerebras provider-config structs plus DSEL quota initialization/reset defaults, but the matching token-ledger/API-check work for those two providers is still pending in `src/keymux/token_ledger.rs`. Full request/response translation remains pending for the rest of the provider matrix.
 
 ### Phase 4: ModelMux Integration 🔄 PENDING
 
@@ -129,15 +132,15 @@ pub enum UnifiedResponse {
 
 ### Phase 3: Additional Providers
 
-1. **Moonshot/Kimi**
-2. **Groq**
-3. **xAI/Grok**
+1. **Moonshot/Kimi** - quota/DSEL parity landed in `litebike`; full translation work remains
+2. **Groq** - quota/DSEL parity landed in `litebike`; full translation work remains
+3. **xAI/Grok** - DSEL quota scaffolding landed in `litebike`; full token-ledger/API-check parity remains
 4. **Cohere**
 5. **Mistral**
 6. **Perplexity**
 7. **OpenRouter**
 8. **NVIDIA**
-9. **Cerebras**
+9. **Cerebras** - DSEL quota scaffolding landed in `litebike`; full token-ledger/API-check parity remains
 
 ### Phase 4: ModelMux Integration
 
