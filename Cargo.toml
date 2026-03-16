@@ -5,14 +5,6 @@ edition = "2021"
 license = "AGPL-3.0"
 repository = "https://github.com/jnorthrup/litebike"
 
-[[bin]]
-name = "modelmux"
-path = "src/bin/modelmux.rs"
-
-[[bin]]
-name = "dsel"
-path = "src/bin/dsel.rs"
-
 [dependencies]
 # Core async runtime
 tokio = { version = "1", features = ["full"] }
@@ -30,6 +22,12 @@ env_logger = "0.10"
 # Error handling
 thiserror = "1.0"
 anyhow = "1.0"
+
+# Litebike core dependencies
+literbike = { path = "../literbike" }
+
+# Userspace kernel emulation substrate
+userspace = { path = "../userspace", features = ["kernel"] }
 
 # Utilities
 bytes = "1.0"

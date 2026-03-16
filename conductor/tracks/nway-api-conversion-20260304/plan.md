@@ -30,17 +30,16 @@
 
 - [x] Moonshot/Kimi (`litebike` keymux token-ledger + DSEL parity)
 - [x] Groq (`litebike` keymux token-ledger + DSEL parity)
-- [x] xAI/Grok + Cerebras (`litebike` keymux DSEL quota scaffolding)
-- [ ] xAI/Grok (full token-ledger/API-check parity)
+- [x] xAI/Grok (`litebike` keymux full token-ledger/API-check parity) ✅ NEW
+- [x] Cerebras (`litebike` keymux full token-ledger/API-check parity) ✅ NEW
 - [ ] Cohere
 - [ ] Mistral
 - [ ] Perplexity
 - [ ] OpenRouter
 - [ ] NVIDIA
-- [ ] Cerebras (full token-ledger/API-check parity)
 - [ ] HuggingFace
 
-Phase 3 is now started in `litebike`: Moonshot/Kimi and Groq have provider-config structs, token-ledger initialization, API-status checks, and quota-estimation defaults in `src/keymux/dsel.rs` and `src/keymux/token_ledger.rs`. This slice extends `src/keymux/dsel.rs` with xAI/Grok and Cerebras provider-config structs plus DSEL quota initialization/reset defaults, but the matching token-ledger/API-check work for those two providers is still pending in `src/keymux/token_ledger.rs`. Full request/response translation remains pending for the rest of the provider matrix.
+Phase 3 is now complete for xAI/Grok and Cerebras - both providers have full token-ledger initialization, API-status checks, and quota-estimation defaults in `src/keymux/token_ledger.rs`. Remaining: Cohere, Mistral, Perplexity, OpenRouter, NVIDIA, HuggingFace token-ledger/API-check parity.
 
 ### Phase 4: ModelMux Integration 🔄 PENDING
 

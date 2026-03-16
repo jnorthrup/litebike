@@ -38,9 +38,9 @@ This file orchestrates the "Creeping Vine" transport and "Dystopian Holdout" con
 
 ---
 
-## [~] Track: N-Way API Conversion Layer 🔄 88% COMPLETE
+## [~] Track: N-Way API Conversion Layer 🔄 92% COMPLETE
 - **Objective:** Unified API translation between all major AI providers, with quota-aware provider surfaces carried into `litebike`.
-- **Status:** Phase 1 remains complete; Moonshot/Kimi plus Groq have `keymux` quota-tracking parity, and xAI/Grok plus Cerebras now have `keymux` DSEL quota scaffolding while token-ledger follow-through remains open
+- **Status:** Phase 3: xAI/Grok and Cerebras now have full token-ledger parity; remaining: Cohere, Mistral, Perplexity, OpenRouter, NVIDIA, HuggingFace
 - **Priority:** High
 - **Link:** [./tracks/nway-api-conversion-20260304/](./tracks/nway-api-conversion-20260304/)
 

@@ -81,7 +81,7 @@ impl ModelHierarchy {
     }
 
     fn max_ctx() -> usize {
-        crate::models::utils::max_context_window() as usize
+        literbike::modelmux::utils::max_context_window() as usize
     }
 
     fn load_nvidia_models(&mut self) {

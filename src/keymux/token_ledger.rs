@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, Utc};
 
-use super::dsel::{ProviderTokenLedger, ProviderApiStatus, VagueQuota, QuotaSource, KiloCodeConfig, OpenCodeConfig, OpenRouterConfig, NvidiaConfig, MoonshotConfig, GroqConfig};
+use super::dsel::{ProviderTokenLedger, ProviderApiStatus, VagueQuota, QuotaSource, KiloCodeConfig, OpenCodeConfig, OpenRouterConfig, NvidiaConfig, MoonshotConfig, GroqConfig, XAIConfig, CerebrasConfig};
 
 /// Manager for tracking token usage across providers
 pub struct TokenLedgerManager {
@@ -24,6 +24,8 @@ pub struct ProviderConfigs {
     pub nvidia: Option<NvidiaConfig>,
     pub moonshot: Option<MoonshotConfig>,
     pub groq: Option<GroqConfig>,
+    pub xai: Option<XAIConfig>,
+    pub cerebras: Option<CerebrasConfig>,
 }
 
 impl TokenLedgerManager {
@@ -37,6 +39,8 @@ impl TokenLedgerManager {
                 nvidia: None,
                 moonshot: None,
                 groq: None,
+                xai: None,
+                cerebras: None,
             },
         }
     }
@@ -198,6 +202,58 @@ impl TokenLedgerManager {
             };
             self.provider_configs.groq = Some(config);
         }
+
+        // xAI (Grok) Configuration
+        if let Some(api_key) = api_keys.get("xai") {
+            let config = XAIConfig {
+                api_key: Some(api_key.clone()),
+                base_url: "https://api.x.ai/v1".to_string(),
+                estimated_daily_limit: 1_500_000, // xAI/Grok typical quota
+                api_check_interval: 3600, // Check every hour
+                last_api_check: 0,
+                current_ledger: ProviderTokenLedger {
+                    provider_name: "xai".to_string(),
+                    total_tokens_used: 0,
+                    tokens_used_today: 0,
+                    tokens_used_this_hour: 0,
+                    last_api_check: None,
+                    api_status: ProviderApiStatus::Unknown,
+                    vague_quota_remaining: Some(VagueQuota {
+                        estimated_remaining: 1_500_000,
+                        confidence: 0.7,
+                        last_updated: Self::current_timestamp(),
+                        source: QuotaSource::ManualConfiguration,
+                    }),
+                },
+            };
+            self.provider_configs.xai = Some(config);
+        }
+
+        // Cerebras Configuration
+        if let Some(api_key) = api_keys.get("cerebras") {
+            let config = CerebrasConfig {
+                api_key: Some(api_key.clone()),
+                base_url: "https://api.cerebras.ai/v1".to_string(),
+                estimated_daily_limit: 2_000_000, // Cerebras typical quota
+                api_check_interval: 3600, // Check every hour
+                last_api_check: 0,
+                current_ledger: ProviderTokenLedger {
+                    provider_name: "cerebras".to_string(),
+                    total_tokens_used: 0,
+                    tokens_used_today: 0,
+                    tokens_used_this_hour: 0,
+                    last_api_check: None,
+                    api_status: ProviderApiStatus::Unknown,
+                    vague_quota_remaining: Some(VagueQuota {
+                        estimated_remaining: 2_000_000,
+                        confidence: 0.8,
+                        last_updated: Self::current_timestamp(),
+                        source: QuotaSource::ManualConfiguration,
+                    }),
+                },
+            };
+            self.provider_configs.cerebras = Some(config);
+        }
     }
 
     /// Track token usage for a provider
@@ -337,6 +393,54 @@ impl TokenLedgerManager {
                     }
                 }
             }
+            "xai" => {
+                if let Some(config) = &self.provider_configs.xai {
+                    if let Some(api_key) = &config.api_key {
+                        let status = self.check_xai_api(api_key).await?;
+                        
+                        // Update ledger
+                        if let Some(ledger) = self.ledgers.get_mut(provider) {
+                            ledger.last_api_check = Some(current_time);
+                            ledger.api_status = status.clone();
+                            
+                            // Update vague quota from API response
+                            let estimated_quota = self.estimate_quota_from_api(provider, &status);
+                            ledger.vague_quota_remaining = Some(VagueQuota {
+                                estimated_remaining: estimated_quota,
+                                confidence: 0.8,
+                                last_updated: current_time,
+                                source: QuotaSource::ApiDirect,
+                            });
+                        }
+                        
+                        return Ok(status);
+                    }
+                }
+            }
+            "cerebras" => {
+                if let Some(config) = &self.provider_configs.cerebras {
+                    if let Some(api_key) = &config.api_key {
+                        let status = self.check_cerebras_api(api_key).await?;
+                        
+                        // Update ledger
+                        if let Some(ledger) = self.ledgers.get_mut(provider) {
+                            ledger.last_api_check = Some(current_time);
+                            ledger.api_status = status.clone();
+                            
+                            // Update vague quota from API response
+                            let estimated_quota = self.estimate_quota_from_api(provider, &status);
+                            ledger.vague_quota_remaining = Some(VagueQuota {
+                                estimated_remaining: estimated_quota,
+                                confidence: 0.8,
+                                last_updated: current_time,
+                                source: QuotaSource::ApiDirect,
+                            });
+                        }
+                        
+                        return Ok(status);
+                    }
+                }
+            }
             _ => {
                 return Err(format!("Unknown provider: {}", provider));
             }
@@ -412,6 +516,28 @@ impl TokenLedgerManager {
         Ok(ProviderApiStatus::Healthy)
     }
 
+    /// Check xAI (Grok) API
+    async fn check_xai_api(&self, api_key: &str) -> Result<ProviderApiStatus, String> {
+        // Simulate xAI API check
+        if let Some(ledger) = self.ledgers.get("xai") {
+            if ledger.tokens_used_today > 1_500_000 {
+                return Ok(ProviderApiStatus::RateLimited);
+            }
+        }
+        Ok(ProviderApiStatus::Healthy)
+    }
+
+    /// Check Cerebras API
+    async fn check_cerebras_api(&self, api_key: &str) -> Result<ProviderApiStatus, String> {
+        // Simulate Cerebras API check
+        if let Some(ledger) = self.ledgers.get("cerebras") {
+            if ledger.tokens_used_today > 2_000_000 {
+                return Ok(ProviderApiStatus::RateLimited);
+            }
+        }
+        Ok(ProviderApiStatus::Healthy)
+    }
+
     /// Estimate quota from API response
     fn estimate_quota_from_api(&self, provider: &str, status: &ProviderApiStatus) -> u64 {
         match status {
@@ -424,6 +550,8 @@ impl TokenLedgerManager {
                     "nvidia" => 3_000_000,
                     "moonshot" => 1_500_000,
                     "groq" => 2_000_000,
+                    "xai" => 1_500_000,
+                    "cerebras" => 2_000_000,
                     _ => 0,
                 }
             }
@@ -436,6 +564,8 @@ impl TokenLedgerManager {
                     "nvidia" => 1_500_000,
                     "moonshot" => 750_000,
                     "groq" => 1_000_000,
+                    "xai" => 750_000,
+                    "cerebras" => 1_000_000,
                     _ => 0,
                 }
             }
