@@ -2,137 +2,97 @@
 name = "litebike"
 version = "0.1.0"
 edition = "2021"
-authors = ["jnorthrup"]
-description = "High-performance proxy with universal protocol detection using Patricia Trie"
-license = "AGPL-3.0-or-later"
-repository = "https://github.com/jnorthrup/litebike"
-keywords = ["proxy", "socks5", "http", "protocol-detection", "networking"]
-categories = ["network-programming", "web-programming"]
-readme = "README.md"
 
-[lib]
-name = "litebike"
-path = "src/lib.rs"
-
-[[bin]]
-name = "litebike"
-path = "src/main.rs"
-
-[[bin]]
-name = "litebike-proxy"
-path = "src/main-termux.rs"
-
-[[bin]]
-name = "litebike-simple"
-path = "src/main-simple.rs"
-
-[[bin]]
-name = "test-patricia"
-path = "src/bin/test_patricia.rs"
-
-[[bin]]
-name = "test-tls-sni"
-path = "src/bin/test_tls_sni.rs"
-
-[[bin]]
-name = "mock-protocols"
-path = "src/bin/mock_protocols.rs"
-
-[[bin]]
-name = "benchmark-simd"
-path = "src/bin/benchmark_simd.rs"
-
-[[bin]]
-name = "massive-torture-test"
-path = "src/bin/massive_torture_test.rs"
-
-[[bin]]
-name = "working-torture-test"
-path = "src/bin/working_torture_test.rs"
-
-[[bin]]
-name = "minimal-torture-test"
-path = "src/bin/minimal_torture_test.rs"
-
-[[bin]]
-name = "minimal-proxy"
-path = "src/bin/minimal_proxy.rs"
-
-[[bin]]
-name = "ffi-peek-test"
-path = "src/bin/ffi_peek_test.rs"
-
-[[bin]]
-name = "simple-ffi-test"
-path = "src/bin/simple_ffi_test.rs"
-
-[[bin]]
-name = "pure-ffi-test"
-path = "src/bin/pure_ffi_test.rs"
-
-[[bin]]
-name = "test-swlan0-bind"
-path = "src/bin/test_swlan0_bind.rs"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# Core async runtime
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "io-util", "time", "macros", "sync"] }
-
-# DNS resolution
-hickory-resolver = { version = "0.24", features = ["tokio-runtime"] }
-
-# Network interface detection
-pnet = { version = "0.35" }
-
-# UPnP port forwarding
-igd-next = { version = "0.14" }
-
-# Logging
-log = "0.4"
-env_logger = { version = "0.11", default-features = false, features = ["color"] }
-
-# System utilities
-hostname = { version = "0.3" }
-
-# Async traits
-async-trait = "0.1"
-
-# Static initialization
-lazy_static = "1.4"
-
-# Macro utilities for static code generation
-paste = "1.0"
-
-# Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0" }
-
-# HTTP parsing
-httparse = "1.8"
-
-# Base64 encoding/decoding
-base64 = { version = "0.22" }
-
-# Date/time handling
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-
-# POSIX socket operations
-[target.'cfg(unix)'.dependencies]
-libc = { version = "0.2" }
-nix = { version = "0.29", features = ["socket"] }
+proc-macro2 = "1.0.95"
+unicode-ident = "1.0.18"
+stable_deref_trait = "1.2.0"
+libc = "0.2.174"
+writeable = "0.6.1"
+smallvec = "1.15.1"
+litemap = "0.8.0"
+icu_properties_data = "2.0.1"
+icu_normalizer_data = "2.0.0"
+cfg-if = "1.0.1"
+autocfg = "1.5"
+parking_lot_core = "0.9.11"
+crossbeam-utils = "0.8.21"
+scopeguard = "1.2.0"
+serde = { version = "1.0.219", features = ["derive"] }
+same-file = "1.0.6"
+utf8_iter = "1.0.4"
+serde_json = "1.0.142"
+percent-encoding = "2.3.1"
+nix = { version = "0.27", features = ["socket"] }
+env_logger = "0.10"
+lock_api = "0.4.13"
+walkdir = "2.5.0"
+form_urlencoded = "1.2.1"
+log = "0.4.27"
+itoa = "1.0.15"
+pin-project-lite = "0.2.16"
+bitflags = "2.9.1"
+memchr = "2.7.5"
+ryu = "1.0.20"
+bytes = "1.10.1"
+quote = "1.0.40"
+syn = { version = "2.0.104", features = ["full"] }
+crossbeam-channel = "0.5.15"
+socket2 = "0.6.0"
+signal-hook-registry = "1.4.6"
+fsevent-sys = "4.1.0"
+mio = "1.0.4"
+filetime = "0.2.25"
+notify = "6.1.1"
+parking_lot = "0.12.4"
+synstructure = "0.13.2"
+zerovec-derive = "0.11.1"
+displaydoc = "0.2.5"
+serde_derive = "1.0.219"
+tokio-macros = "2.5.0"
+async-trait = "0.1.88"
+zerofrom-derive = "0.1.6"
+yoke-derive = "0.8.0"
+tokio = { version = "1.47.1", features = ["full"] }
+zerofrom = "0.1.6"
+yoke = "0.8.0"
+zerovec = "0.11.4"
+zerotrie = "0.2.2"
+tinystr = "0.8.1"
+potential_utf = "0.1.2"
+icu_collections = "2.0.0"
+icu_locale_core = "2.0.0"
+icu_provider = "2.0.0"
+icu_normalizer = "2.0.0"
+icu_properties = "2.0.1"
+idna_adapter = "1.2.1"
+idna = "1.0.3"
+url = "2.5.4"
+rand = "0.8"
+regex = "1.10"
+glob = "0.3"
 
 [features]
-default = ["static-generation"]
-static-generation = []
+default = []
+simd = []
+unstable = ["intel-console", "experimental-gates"]
+intel-console = []
+experimental-gates = []
+rbcursive-full = ["simd"]
+full = ["unstable", "rbcursive-full"]
 
-[dev-dependencies]
-tokio-test = "0.4"
-
-
+[build-dependencies]
+cc = "1.0"
 
 [profile.release]
 lto = true
-opt-level = 3
 codegen-units = 1
 strip = true
-panic = "abort"
+
+[dev-dependencies]
+base64 = "0.22.1"
+env_logger = "0.11.8"
+rand = "0.9.2"
+tokio-test = "0.4.4"

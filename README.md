@@ -1,303 +1,447 @@
-# LiteBike Proxy
-
-A lightweight, high-performance proxy server with **static code generation** architecture. Uses fluent API combinators to produce C FFI-compatible static code blocks for zero-overhead protocol detection.
-
-## Architecture: Static Code Block Generation
-
-LiteBike uses a novel approach where **fluent APIs generate static code blocks at compile time** that are as fast as hand-written C code, with zero runtime overhead.
-
-### Core Design Principles
-
-1. **Static Code Generation**: Fluent APIs produce `extern "C"` functions at compile time
-2. **Fixed Byte Range Constraints**: No variable-length tokenization to avoid spec stalls
-3. **N-Dimensional Byte Range Traversal**: Protocols defined across multiple dimensions
-4. **Zero Runtime Overhead**: All decisions made at compile time
-
-### Protocol Definition via Fluent API
-
-```rust
-// Fluent API generates static code blocks
-let socks5 = byte(0x05).then(any());
-let http = byte(b'G').or(byte(b'P')).then(space());
-let tls = byte(0x16).then(byte(0x03)).then(version());
-
-// Compiles to static extern "C" functions:
-#[no_mangle]
-pub extern "C" fn check_socks5(buf: *const u8, len: usize) -> u32 {
-    unsafe { (len >= 2 && *buf == 0x05) as u32 }
-}
-```
-
-### N-Dimensional Byte Range Architecture
-
-Protocols exist in multiple dimensions:
-
-- **Dimension 1**: Byte value (0-255)
-- **Dimension 2**: Buffer position/offset  
-- **Dimension 3**: Protocol rarity ranking
-- **Dimension 4**: Temporal ordering (Nagle buffering)
-- **Dimension N**: Context-dependent continuations
-
-### Static Byte Range Inference
-
-The combinator system performs **compile-time inference** of byte ranges:
-
-```rust
-// At compile time, the system automatically computes:
-// - Byte overlap penalties (fewer claimants = higher priority)
-// - Optimal scanning order (rarest bytes first)
-// - Static jump tables for O(1) dispatch
-// - Continuation patterns for multi-byte protocols
-
-const PROTOCOL_TABLE: ProtocolTable = compute_at_compile_time!({
-    socks5: penalty=1,    // Only claims 0x05
-    tls:    penalty=1,    // Only claims 0x16  
-    http:   penalty=8,    // Claims G,P,D,H,O,C,T,U
-});
-```
-
-## Performance Characteristics
-
-### Compilation Output
-
-The fluent API produces optimized static code:
-
-```asm
-; Generated assembly for SOCKS5 detection
-check_socks5:
-    cmp rsi, 2          ; len >= 2?
-    jb  .false
-    mov al, [rdi]       ; load first byte
-    cmp al, 0x05        ; compare with SOCKS5 version
-    sete al             ; set result
-    movzx eax, al       ; zero-extend to u32
-    ret
-.false:
-    xor eax, eax        ; return 0
-    ret
-```
-
-### Detection Performance
-
-| Protocol | Bytes | Assembly Instructions | Cycles |
-|----------|-------|----------------------|--------|
-| SOCKS5   | 1     | 6                    | ~3     |
-| TLS      | 3     | 12                   | ~6     |
-| HTTP     | 1-4   | 8-16                 | ~4-8   |
-
-**Key**: All protocols detected in **constant time** with **zero allocations**.
-
-## Protocol Detection Map
+## Adaptive Git Sandbox & Agent Hierarchy (Mermaid)
 
 ```mermaid
-graph TD
-    Root[Static Jump Table<br/>256 entries]
-    
-    %% Direct O(1) lookups
-    Root -->|0x05| SOCKS5[SOCKS5<br/>extern C fn]
-    Root -->|0x16| TLS[TLS<br/>extern C fn]
-    
-    %% HTTP method dispatch
-    Root -->|0x47 'G'| HTTP_G[HTTP GET<br/>extern C fn]
-    Root -->|0x50 'P'| HTTP_P[HTTP POST/PUT<br/>extern C fn]
-    Root -->|0x43 'C'| HTTP_C[HTTP CONNECT<br/>extern C fn]
-    Root -->|0x44 'D'| HTTP_D[HTTP DELETE<br/>extern C fn]
-    Root -->|0x48 'H'| HTTP_H[HTTP HEAD<br/>extern C fn]
-    Root -->|0x4F 'O'| HTTP_O[HTTP OPTIONS<br/>extern C fn]
-    Root -->|0x54 'T'| HTTP_T[HTTP TRACE<br/>extern C fn]
-    
-    style SOCKS5 fill:#f9f,stroke:#333,stroke-width:4px
-    style TLS fill:#ff9,stroke:#333,stroke-width:4px
-    style HTTP_G fill:#9ff,stroke:#333,stroke-width:2px
-    style HTTP_P fill:#9ff,stroke:#333,stroke-width:2px
-    style HTTP_C fill:#9ff,stroke:#333,stroke-width:2px
+flowchart TD
+	subgraph Host
+		H1[File Watcher]
+		H2[Git Agent]
+		H3[Debug Agent]
+		H4[Build/Test Runner]
+	end
+	subgraph Client
+		C1[File Watcher]
+		C2[Git Agent]
+		C3[Debug Agent]
+		C4[Build/Test Runner]
+	end
+	subgraph SSH
+		S1[Secure Tunnel]
+	end
+	subgraph Coordination
+		M1[Root Agent]
+		M2[Sub-Agent: Repo]
+		M3[Sub-Agent: Service]
+	end
+
+	H1 --"Detects changes"--> H2
+	H2 --"Commits & pushes deltas"--> S1
+	S1 --"Syncs deltas"--> C2
+	C2 --"Applies/merges deltas"--> C1
+	H2 --"Notifies"--> M1
+	C2 --"Notifies"--> M1
+	M1 --"Coordinates debug session"--> H3
+	M1 --"Coordinates debug session"--> C3
+	H3 --"Runs diagnostics"--> H4
+	C3 --"Runs diagnostics"--> C4
+	H4 --"Reports results"--> M1
+	C4 --"Reports results"--> M1
+	M1 --"Escalates/Delegates"--> M2
+	M2 --"Communicates"--> M3
+	M1 --"Aggregates state"--> S1
+
+	H2 --"Resolves conflicts"--> C2
+	C2 --"Resolves conflicts"--> H2
+	S1 --"Enables tmux/VSCode Live Share"--> H3
+	S1 --"Enables tmux/VSCode Live Share"--> C3
 ```
 
-## Combinator DSL
+AI: DO NOT TOUCH
 
-### Basic Combinators
+# LiteBike
 
-```rust
-// Literal byte matching
-byte(0x05)                    // Matches exactly 0x05
+## Defaults and Tools
 
-// Byte ranges  
-range(0x41, 0x5A)            // Matches A-Z
+- **Ingress**: `s?w?lan*` → **Port 8888** ← **Egress**: `rmnet*` 
+- **Linked tools**: `ifconfig`, `netstat`, `route`, `ip`
 
-// Sequences
-byte(0x16).then(byte(0x03))  // TLS handshake pattern
+## Actual Codebase Specifications
 
-// Alternatives
-byte(b'G').or(byte(b'P'))    // GET or POST
+### Binaries & Entrypoints
+- Main binary: `litebike` (argv0-dispatch)
+- Hardlink/symlink invocation: acts as `ifconfig`, `ip`, `route`, `netstat` (minimal syscall-only implementations)
+- Additional commands: `probe`, `domains`, `carrier`, `radios`, `snapshot`, `watch`
 
-// Bounded repetition
-any().bounded(1, 4)          // 1-4 arbitrary bytes
+### Command Reference
+
+#### Network Utilities (Stable)
+```bash
+# Core network commands
+litebike ifconfig [iface]       # List interfaces and addresses
+litebike ip [args]              # IP utility emulation
+litebike route                  # Print routing table
+litebike netstat [args]         # Show socket states
+litebike probe                  # Show best-effort egress selections for v4/v6
+litebike domains                # Domain info utility
+litebike carrier                # Carrier info utility
+litebike radios [args]          # Radio info utility
+litebike snapshot [args]        # Print config snapshot
+litebike watch [args]           # Watch utility
 ```
 
-### Advanced Combinators
-
-```rust
-// Fixed-width constraints (prevents spec stalls)
-http_method()
-    .fixed(4)                 // Exactly 4 bytes (e.g., "GET ")
-    .penalty(LOW);           // Low penalty for common patterns
-
-// N-dimensional projections
-tls_handshake()
-    .dimension(BYTE_VALUE, 0x16)
-    .dimension(RARITY, HIGH)
-    .dimension(POSITION, 0)
-    .build_static_block();
+#### Proxy Operations (Stable)
+```bash
+# Proxy server and testing
+litebike proxy-server [port]    # Start unified proxy server (default: 8888)
+litebike proxy-test [host port] # Test proxy functionality with RBCursive validation
+litebike proxy-setup enable     # Configure seamless macOS proxy settings
+litebike proxy-config [options] # Advanced proxy configuration
+litebike version-check          # Check binary version, age, and capabilities
 ```
 
-## Static Code Block Architecture
+#### Remote Sync & SSH Operations (Stable)
+```bash
+# Enhanced SSH integration
+litebike remote-sync list                    # List git remotes with SSH connectivity status
+litebike remote-sync pull                    # Pull from temporary remotes
+litebike remote-sync clean                   # Remove stale remotes
+litebike remote-sync ssh-exec [host] <cmd>   # Execute command via SSH (auto-discover host)
+litebike remote-sync ssh-mix                 # Mixed SSH ops: discovery + sync + exec
+litebike remote-sync hostname-resolve [host] # Resolve SSH hostname connectivity
+```
 
-### Generated Code Structure
+#### Pattern Matching (Stable)
+```bash
+# RBCursive pattern matching system
+litebike pattern-match <type> <pattern> [file]  # Match glob/regex patterns
+litebike pattern-glob <pattern> [file]          # Glob pattern matching
+litebike pattern-regex <pattern> [file]         # Regex pattern matching
+litebike pattern-scan <type> <pattern> [file]   # SIMD-accelerated pattern scanning
+litebike pattern-bench [size]                   # Benchmark pattern performance
+```
 
+#### Experimental Features (Unstable)
+
+**⚠️ Enable with:** `cargo build --features unstable`
+
+These features are under active development and may change or be removed:
+
+```bash
+# Intel Console (Planned - Future Release)
+litebike intel-console start [--port 9999]     # Start protocol reverse engineering console
+litebike intel-console filter <expression>     # Apply Wireshark-style protocol filters
+litebike intel-console trace <syscall-expr>    # Apply strace-style system call tracing
+litebike intel-console analyze <session-id>    # Deep protocol analysis with RBCursive
+litebike intel-console replay <session-id>     # Replay captured protocol sessions
+litebike intel-console export <format>         # Export analysis results
+```
+
+**Planned Intel Console Features:**
+- 🔬 **Protocol Interception**: MITM proxy mode for real-time analysis
+- 🔍 **Wireshark-Style Filtering**: `http.method == GET && tcp.port == 80`
+- 📊 **strace-Style Tracing**: `trace=%network,!futex`
+- ⚡ **RBCursive Integration**: Anchor matrix visualization and pattern discovery
+- 🎯 **DSEL Language**: Domain-specific expression language for complex filtering
+- 📈 **Session Replay**: Capture, modify, and replay protocol exchanges
+
+### Configuration
+- Environment variables:
+		- `LITEBIKE_BIND_PORT` (default: 8888)
+		- `LITEBIKE_INTERFACE` (default: swlan0)
+		- `LITEBIKE_LOG` (default: info)
+		- `LITEBIKE_FEATURES` (comma-separated)
+		- `EGRESS_INTERFACE` (default: auto)
+		- `EGRESS_BIND_IP` (default: auto)
+		- `LITEBIKE_BIND_ADDR` (optional)
+
+### Protocol Support
+- Multi-protocol detection on unified port (HTTP, SOCKS5, TLS, DoH, PAC/WPAD, Bonjour, UPnP)
+- Protocols enumerated in code: HTTP, HTTPS, SOCKS5, TLS, DNS, DoH, PAC, WPAD, Bonjour, UPnP, and many more (see `src/types.rs`)
+
+### System Utility Emulation
+- All tools use direct syscalls via `libc` (no /proc, /sys, /dev on Android)
+- Netlink sockets for routing info
+- ioctl for interface enumeration
+- Minimal Rust wrappers, C-style code for compatibility
+
+### Testing & Examples
+- Integration/unit/bench scaffolding in `tests/`
+- Example: list interfaces and default gateway
+		```rust
+		use litebike::syscall_net::{list_interfaces, get_default_gateway};
+		fn main() -> std::io::Result<()> {
+			let ifaces = list_interfaces()?;
+			for (name, iface) in ifaces {
+				println!("{}: {:?}", name, iface.addrs);
+			}
+			if let Ok(gw) = get_default_gateway() {
+				println!("Default gateway: {}", gw);
+			}
+			Ok(())
+		}
+		```
+
+## Features
+
+### Core Features (Stable)
+- **RBCursive Protocol Engine:** SIMD-accelerated protocol detection with compile-time validation and anchor matrix parsing
+- **Enhanced SSH Integration:** Full SSH client hostname and exec functionality subsumed into `remote-sync` command
+- **Seamless macOS Proxy Setup:** Complete environment integration with LaunchAgent support and variable persistence
+- **Pragmatic Proxy Testing:** Real-world proxy functionality testing with RBCursive protocol validation
+- **Pattern Matching System:** High-performance glob/regex matching with SIMD acceleration and benchmarking
+- **Versatile Proxying:** Multi-protocol proxy server handling HTTP, SOCKS5, TLS, PAC/WPAD, and more
+- **Cross-Platform Support:** Works on Android/Termux, macOS, Linux without modification
+- **Legacy Compatibility:** Drop-in replacement for `ifconfig`, `netstat`, `route`, `ip`
+
+### Enhanced Capabilities
+- **Bonjour-Powered Auto-Discovery:** Seamless, plug-and-play network experience
+- **UPnP Support:** Automatic port forwarding when needed
+- **Version Management:** Binary age tracking and compatibility checking
+- **Universal Installation:** Standardized installation to `~/.litebike/bin/` for consistent access
+
+## Network Interface Handling
+
+LiteBike is designed to intelligently manage network interfaces for optimal proxying:
+
+- **Default Ingress:** The proxy typically listens on WiFi interfaces, often matching patterns like `s?wlan*`.
+- **Default Egress:** Outgoing traffic is routed through mobile data interfaces, commonly `rmnet*`, with built-in backoff logic for reliable connectivity.
+
+## Architecture
+
+### RBCursive Protocol Engine
+
+LiteBike's core is built around the **RBCursive** engine - a SIMD-accelerated protocol detection and parsing system:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    LiteBike Core                            │
+├─────────────────────────────────────────────────────────────┤
+│                RBCursive Engine                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ Anchor Matrix System (SIMD-accelerated)            │   │
+│  │ • Structural anchors: { } [ ] < >                  │   │
+│  │ • Delimiter anchors: spaces, newlines, quotes      │   │
+│  │ • Protocol markers: HTTP methods, version strings  │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ Parse Combinators                                   │   │
+│  │ • Zero-allocation parsing                           │   │
+│  │ • Compile-time protocol validation                 │   │
+│  │ • Pattern matching: glob, regex, custom            │   │
+│  └─────────────────────────────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────┤
+│              Protocol Handlers (Stable)                    │
+│  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐  │
+│  │ HTTP │ │SOCKS5│ │ TLS  │ │ DNS  │ │ PAC  │ │ JSON │  │
+│  └──────┘ └──────┘ └──────┘ └──────┘ └──────┘ └──────┘  │
+├─────────────────────────────────────────────────────────────┤
+│           System Integration Layer                          │
+│  • Direct syscalls (no /proc, /sys dependencies)           │
+│  • Netlink sockets for routing information                 │
+│  • Cross-platform network interface enumeration            │
+│  • Universal binary installation (~/.litebike/bin/)        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Key Architectural Principles
+
+1. **Anchor Matrix Parsing**: SIMD instructions find all structural elements (spaces, quotes, brackets) in parallel, creating a navigable "coordinate system" over protocol data
+2. **Zero-Copy Processing**: Anchors enable slicing data without allocation, using references to original bytes
+3. **Compile-Time Validation**: Protocol acceptance is validated at compile-time through type-safe anchor patterns
+4. **Universal Port Strategy**: Single port (8888) handles multiple protocols through intelligent detection
+
+## WAM Block Stacking Architecture
+
+### Taxonomical Foundation: WAM Axioms
+
+LiteBike implements a Warren Abstract Machine (WAM) dispatch system with formal axioms supporting discrete sequence execution:
+
+#### **Axiom 1: Unification Completeness**
+```
+∀ pattern P, command C: ∃! action A such that unify(P, C) → A
+```
+Every command pattern unifies to exactly one action in O(1) time through the WAM dispatch table.
+
+#### **Axiom 2: Discrete Sequence Isolation**
+```
+∀ sequence S₁, S₂: S₁ ∩ S₂ = ∅ ∧ state(S₁) ⊥ state(S₂)
+```
+WAM sequences are disjoint with orthogonal state spaces, avoiding Job-style hierarchical complexity.
+
+#### **Axiom 3: Element Persistence**
+```
+∀ element E, sequence S: E ∈ S → persistent(E) ∧ immutable(E.session_data)
+```
+CoroutineContext.Element maintains session state persistence across sequence boundaries.
+
+#### **Axiom 4: Key Transform Purity**
+```
+∀ key K, element E: K(E) = E' ∧ side_effects(K) = ∅
+```
+CoroutineContext.Key functions are pure transformations without external side effects.
+
+#### **Axiom 5: RBCursive Projection Isomorphism**
+```
+∀ parser P ∈ RBCursive: ∃! block B ∈ WAM such that π(P) = B
+```
+Every RBCursive parser projects to exactly one WAM block through isomorphic mapping.
+
+### Discrete Sequence Implementation
+
+#### **WAM Block Structure**
 ```rust
-#[repr(C)]
-pub struct ProtocolDetector {
-    // Direct function pointer table - no vtables
-    dispatch: [extern "C" fn(*const u8, usize) -> Detection; 256],
-    
-    // Compile-time computed penalty table
-    penalties: [u8; 256],
-    
-    // Static continuation tables for multi-byte protocols
-    continuations: [*const ProtocolTable; 256],
+/// Fundamental WAM block following discrete sequence axioms
+struct DiscreteWamBlock {
+    sequence_id: usize,           // Axiom 2: Sequence isolation identifier
+    element: SessionState,        // Axiom 3: Persistent session state
+    key: TransformCode,          // Axiom 4: Pure transformation function
+    next: Option<SequenceId>,    // Linear continuation (no hierarchy)
 }
 
-// All tables populated at compile time
-static DETECTOR: ProtocolDetector = ProtocolDetector {
-    dispatch: [
-        null_detector,     // 0x00
-        null_detector,     // 0x01
-        // ...
-        check_socks5,      // 0x05
-        // ...
-        check_tls,         // 0x16
-        // ...
-        check_http_g,      // 0x47 'G'
-        // ...
-    ],
-    penalties: compute_penalties!(),
-    continuations: compute_continuations!(),
-};
+/// WAM dispatch table implementing Axiom 1
+const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
+    // Network utilities - O(1) unification
+    ("ifconfig", run_ifconfig),   // unify("ifconfig", cmd) → run_ifconfig
+    ("route", run_route),         // unify("route", cmd) → run_route
+    // Proxy operations
+    ("proxy-server", run_proxy_server),
+    ("socks5", run_socks5_sequence),
+    // Pattern matching via RBCursive projection
+    ("pattern-match", run_pattern_match),
+];
 ```
 
-### Runtime Detection
-
+#### **RBCursive → WAM Projection (Axiom 5)**
 ```rust
-// Runtime is just a single table lookup + function call
-#[inline(always)]
-pub fn detect_protocol(buffer: &[u8]) -> Protocol {
-    if buffer.is_empty() { return Protocol::Unknown; }
-    
-    // Direct indexed access to compile-time generated table
-    unsafe {
-        let detection_fn = DETECTOR.dispatch[buffer[0] as usize];
-        match detection_fn(buffer.as_ptr(), buffer.len()) {
-            SOCKS5_MARKER => Protocol::Socks5,
-            TLS_MARKER => Protocol::Tls,
-            HTTP_MARKER => Protocol::Http,
-            _ => Protocol::Unknown,
+impl RBCursive {
+    /// Project RBCursive parser to discrete WAM block
+    fn project_to_wam(&self, protocol: ProtocolType) -> DiscreteWamBlock {
+        match protocol {
+            ProtocolType::Http(method) => DiscreteWamBlock {
+                sequence_id: 0,  // HTTP sequence
+                element: SessionState::from_stream_parser(self.http_parser()),
+                key: TransformCode::http_transform(method),
+                next: Some(SequenceId::continue_http()),
+            },
+            ProtocolType::Socks5 => DiscreteWamBlock {
+                sequence_id: 1,  // SOCKS5 sequence  
+                element: SessionState::from_stream_parser(self.socks5_parser()),
+                key: TransformCode::socks5_transform(),
+                next: Some(SequenceId::continue_socks5()),
+            },
+            // Other protocol projections...
         }
     }
 }
 ```
 
-## Benefits of Static Code Generation
-
-1. **C-Level Performance**: Direct function calls, no vtable overhead
-2. **Zero Allocations**: All decisions made at compile time
-3. **Branch Prediction Friendly**: Static jump patterns
-4. **Cache Optimal**: Hot code paths in instruction cache
-5. **Debuggable**: Generated assembly is visible and optimizable
-
-## Network Protocol Flow
-
-```mermaid
-flowchart TD
-    Start([Client Connection<br/>Port 8888])
-    Lookup[Static Table Lookup<br/>O(1)]
+#### **Sequence Execution Engine**
+```rust
+/// Execute discrete sequence following axioms 2-4
+fn execute_sequence(seq_id: usize, initial_element: SessionState) -> SessionState {
+    let sequence = &WAM_SEQUENCES[seq_id];  // Axiom 2: Isolated lookup
+    let mut current_state = initial_element; // Axiom 3: Persistent state
     
-    Start --> Lookup
+    for block in sequence.blocks {
+        // Axiom 4: Pure transformation
+        current_state = (block.key)(current_state);
+        
+        // Axiom 2: No hierarchical side effects
+        if let Some(next_id) = block.next {
+            current_state = execute_sequence(next_id, current_state);
+        }
+    }
     
-    Lookup -->|0x05| SOCKS5[extern C check_socks5]
-    Lookup -->|0x16| TLS[extern C check_tls]  
-    Lookup -->|G,P,D,H,O,C,T| HTTP[extern C check_http]
-    Lookup -->|Other| Unknown[Default Handler]
-    
-    SOCKS5 --> SOCKS5Handler[SOCKS5 Protocol Handler]
-    TLS --> TLSHandler[TLS SNI Extraction]
-    HTTP --> HTTPHandler[HTTP Proxy Handler]
-    Unknown --> HTTPHandler
-    
-    SOCKS5Handler --> Relay[Zero-Copy Stream Relay]
-    TLSHandler --> Relay
-    HTTPHandler --> Relay
-    
-    style Lookup fill:#ff9,stroke:#333,stroke-width:4px
-    style SOCKS5 fill:#f9f,stroke:#333,stroke-width:2px
-    style TLS fill:#9ff,stroke:#333,stroke-width:2px
-    style HTTP fill:#9f9,stroke:#333,stroke-width:2px
+    current_state  // Axiom 3: State preservation
+}
 ```
 
-## Implementation Status
+### CoroutineContext.Element.Key Pattern
 
-### ✅ Completed
-- [x] Static code block generation framework
-- [x] Fluent API combinator system  
-- [x] N-dimensional byte range inference
-- [x] C FFI compatible function generation
-- [x] Compile-time penalty calculation
-- [x] Zero-overhead protocol detection
+#### **Element: Session-Based State**
+```rust
+/// Session state element (Axiom 3)
+#[derive(Clone)]
+pub struct SessionState {
+    pub protocol_data: Vec<u8>,      // Immutable session data
+    pub connection_state: ConnState,  // Connection metadata
+    pub parsing_position: usize,     // Stream parser position
+    pub continuation_point: Option<SequenceId>, // Next sequence reference
+}
 
-### 🚧 In Progress
-- [ ] Complete combinator DSL implementation
-- [ ] Static jump table generation
-- [ ] Continuation pattern optimization
-- [ ] Assembly output verification
-
-### 📋 Planned
-- [ ] SIMD acceleration for multi-byte patterns
-- [ ] Profile-guided optimization integration
-- [ ] Benchmark suite vs traditional parsers
-- [ ] Documentation for combinator patterns
-
-## Installation
-
-### Quick Start (Termux)
-
-```bash
-curl -sL https://github.com/jnorthrup/litebike/raw/master/install.sh | bash
+impl SessionState {
+    /// Inherit from RBCursive StreamParser state
+    pub fn from_stream_parser<T>(parser: &StreamParser<T>) -> Self {
+        Self {
+            protocol_data: parser.buffer().to_vec(),
+            connection_state: ConnState::from_parser_state(&parser.state),
+            parsing_position: parser.position(),
+            continuation_point: None,
+        }
+    }
+}
 ```
 
-### From Source
+#### **Key: Pure Transform Functions**
+```rust
+/// Transform code keys (Axiom 4)
+pub enum TransformCode {
+    HttpTransform(fn(&SessionState) -> SessionState),
+    Socks5Transform(fn(&SessionState) -> SessionState),
+    PatternTransform(fn(&SessionState) -> SessionState),
+}
 
-```bash
-git clone https://github.com/jnorthrup/litebike.git
-cd litebike
-cargo build --release --features="static-generation"
+impl TransformCode {
+    /// Execute pure transformation (no side effects)
+    pub fn apply(&self, state: &SessionState) -> SessionState {
+        match self {
+            Self::HttpTransform(f) => f(state),     // Pure HTTP processing
+            Self::Socks5Transform(f) => f(state),   // Pure SOCKS5 processing  
+            Self::PatternTransform(f) => f(state),  // Pure pattern matching
+        }
+    }
+}
 ```
 
-## License
+### Anti-Pattern: Job Hierarchy Avoidance
 
-Licensed under **AGPL-3.0** with commercial licensing available.
+#### **Kotlin Job Pattern (Avoided)**
+```kotlin
+// ANTI-PATTERN: Creates unintended hierarchy complexity
+class JobWithChildren : Job {
+    val children: List<Job> = mutableListOf()  // Hierarchy complexity
+    
+    override suspend fun start() {
+        children.forEach { child ->
+            child.start()  // Sequential dependency cascade
+        }
+    }
+}
+```
 
-- **Free**: Personal, educational, and open source use
-- **Commercial**: Contact for proprietary licensing options
-- **Network Copyleft**: SaaS deployments must provide source access
+#### **Discrete Sequence Pattern (Preferred)**
+```rust
+// PREFERRED: Flat sequence execution
+struct DiscreteSequenceManager {
+    sequences: HashMap<SequenceId, DiscreteSequence>,  // Flat map
+    
+    fn execute(&self, seq_id: SequenceId, state: SessionState) -> SessionState {
+        let sequence = &self.sequences[&seq_id];  // Direct lookup
+        sequence.blocks.iter().fold(state, |s, block| block.key.apply(&s))
+    }
+}
+```
 
-See [LICENSE](LICENSE) for complete terms.
+### Taxonomical Classification
 
-## Contributing
+#### **WAM Block Taxonomy**
+```
+WAM Architecture
+├── Unification Engine (Axiom 1)
+│   ├── Pattern Matching: O(1) dispatch table lookup
+│   └── Command Resolution: Deterministic action binding
+├── Discrete Sequences (Axiom 2)  
+│   ├── Sequence Isolation: Disjoint state spaces
+│   └── Linear Continuation: No hierarchical complexity
+├── Session Management (Axiom 3)
+│   ├── Element Persistence: State continuity across boundaries
+│   └── State Immutability: Protection against corruption
+├── Transform Purity (Axiom 4)
+│   ├── Key Functions: Side-effect-free transformations
+│   └── Functional Composition: Predictable state transitions
+└── RBCursive Integration (Axiom 5)
+    ├── Parser Projection: Isomorphic mapping to WAM blocks
+    └── Protocol Unification: Compile-time validation integration
+```
 
-We welcome contributions to the static code generation architecture! Areas of interest:
+This taxonomical foundation ensures that WAM blocks maintain formal properties while providing practical benefits: O(1) dispatch, continuation simplicity, and seamless RBCursive integration.
 
-- Combinator pattern optimizations
-- Assembly output improvements  
-- Benchmark comparisons
-- Protocol pattern libraries
-
-Submit pull requests or issues on GitHub.

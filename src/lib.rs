@@ -10,13 +10,12 @@
 //! - agent_8888 listener (gated combinator precompiled)
 //! - I/O substrate for Linux I/O emulation (io_substrate)
 //! - Protocol detection and SIMD combinators (protocol_detector, rbcursive)
-//! - Samsung Note 20 5G platform features (note20_features)
+//! - Samsung Note 20 5G platform features (note20_features, radios, tcp_fingerprint)
 
 pub mod agent_8888;
 pub mod agents;
 pub mod channel;
 pub mod dsel;
-pub mod gates;
 pub mod integrated_proxy;
 pub mod io_substrate;
 pub mod knox_proxy;
@@ -40,6 +39,7 @@ pub mod autovec_optimization;
 pub mod pac;
 pub mod bonjour;
 pub mod upnp;
+pub mod upnp_aggressive;
 pub mod auto_discovery;
 pub mod types;
 pub mod note20_features;
@@ -57,6 +57,23 @@ pub mod protocol_mocks;
 pub mod simple_torture_test;
 pub mod abstractions;
 pub mod stubs;
+
+// Samsung Note 20 5G platform modules
+pub mod radios;
+pub mod git_sync;
+pub mod raw_telnet;
+pub mod tcp_fingerprint;
+pub mod packet_fragment;
+pub mod tls_fingerprint;
+pub mod host_trust;
+pub mod taxonomy;
+pub mod reactor;
+
+// Experimental/feature-gated
+#[cfg(feature = "experimental-gates")]
+pub mod gates;
+#[cfg(feature = "intel-console")]
+pub mod intel_console;
 
 // Re-export from agents
 pub use agents::model_hierarchy::{ModelHierarchy, ModelNode, ProviderConfig};
