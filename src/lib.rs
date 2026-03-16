@@ -9,6 +9,8 @@
 //! - Integrated proxy server (integrated_proxy)
 //! - agent_8888 listener (gated combinator precompiled)
 //! - I/O substrate for Linux I/O emulation (io_substrate)
+//! - Protocol detection and SIMD combinators (protocol_detector, rbcursive)
+//! - Samsung Note 20 5G platform features (note20_features)
 
 pub mod agent_8888;
 pub mod agents;
@@ -21,6 +23,40 @@ pub mod knox_proxy;
 pub mod proxy_config;
 pub mod syscall_net;
 pub mod tethering_bypass;
+
+// Protocol detection and routing
+pub mod protocol_detector;
+pub mod patricia_detector_simd;
+#[cfg(target_arch = "aarch64")]
+pub mod patricia_detector_simd_arm64;
+pub mod combinator_dsl;
+#[cfg(feature = "static-generation")]
+pub mod static_generation;
+#[cfg(feature = "static-generation")]
+pub mod jump_table_generation;
+pub mod n_dimensional_inference;
+pub mod fixed_range_constraints;
+pub mod autovec_optimization;
+pub mod pac;
+pub mod bonjour;
+pub mod upnp;
+pub mod auto_discovery;
+pub mod types;
+pub mod note20_features;
+pub mod unified_handler;
+pub mod universal_listener;
+pub mod protocol_registry;
+pub mod protocol_handlers;
+pub mod simple_routing;
+pub mod unified_protocol_manager;
+pub mod posix_sockets;
+// RBCursive - Network parser combinators with SIMD acceleration
+pub mod rbcursive;
+// Testing and mock modules
+pub mod protocol_mocks;
+pub mod simple_torture_test;
+pub mod abstractions;
+pub mod stubs;
 
 // Re-export from agents
 pub use agents::model_hierarchy::{ModelHierarchy, ModelNode, ProviderConfig};
@@ -37,8 +73,6 @@ pub use literbike::modelmux::{
     ModelProxy, ModelRegistry, ProxyConfig, ToolbarAction, ToolbarState,
 };
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -46,11 +80,9 @@ mod tests {
 
     #[test]
     fn test_litebike_system() {
-        // Test basic model hierarchy
         let hierarchy = ModelHierarchy::new();
         assert!(hierarchy.roots.len() > 0);
 
-        // Test DSEL functionality
         let dsel = DSELBuilder::new()
             .with_quota("test_quota", 1000)
             .with_provider("openai", 500, 1, 20.0, false)
