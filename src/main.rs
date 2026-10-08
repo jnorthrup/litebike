@@ -14,6 +14,7 @@ use std::io;
 
 use env_logger::Env;
 use log::{debug, error, info, warn};
+use userspace;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::OnceCell;
@@ -328,36 +329,44 @@ async fn main() {
     };
     let bind_ip: IpAddr = bind_ip_str.parse().expect("Invalid BIND_IP address");
 
+    let job = std::sync::Arc::new(userspace::JobImpl::new());
+    let dispatcher = userspace::Dispatchers::default();
+    let context = userspace::CoroutineContext::new(job, dispatcher);
+    let scope = userspace::StandardCoroutineScope::new(context);
+
     // Initialize auto-discovery services
     if let IpAddr::V4(ipv4) = bind_ip {
         let hostname = hostname::get()
             .map(|h| h.to_string_lossy().to_string())
             .unwrap_or_else(|_| "litebike-proxy".to_string());
-        
+
         let auto_discovery = auto_discovery::AutoDiscovery::new(ipv4, hostname);
-        
-        tokio::spawn(async move {
+
+        userspace::launch(&scope, || async move {
             if let Err(e) = auto_discovery.start().await {
                 warn!("Auto-discovery services failed to start: {}", e);
             }
+        });
+    }
         });
     }
 
     if !bind_ip.is_loopback() {
         if let IpAddr::V4(ipv4) = bind_ip {
             let local_ip_clone = ipv4;
-            tokio::spawn(async move {
+            userspace::launch(&scope, || async move {
                 setup_upnp(local_ip_clone).await;
             });
         }
     }
+    }
 
     let http_listener = TcpListener::bind(SocketAddr::new(bind_ip, HTTP_PORT)).await.expect("Failed to bind HTTP");
     info!("HTTP proxy listening on {}", http_listener.local_addr().unwrap_or_else(|_| SocketAddr::new(bind_ip, HTTP_PORT)));
-    tokio::spawn(async move {
+    userspace::launch(&scope, || async move {
         loop {
             if let Ok((stream, _)) = http_listener.accept().await {
-                tokio::spawn(async move {
+                userspace::launch(&scope, || async move {
                     if let Err(e) = handle_http(stream).await {
                         debug!("HTTP handler error: {}", e);
                     }
@@ -368,10 +377,10 @@ async fn main() {
 
     let socks_listener = TcpListener::bind(SocketAddr::new(bind_ip, SOCKS_PORT)).await.expect("Failed to bind SOCKS5");
     info!("SOCKS5 proxy listening on {}", socks_listener.local_addr().unwrap_or_else(|_| SocketAddr::new(bind_ip, SOCKS_PORT)));
-    tokio::spawn(async move {
+    userspace::launch(&scope, || async move {
         loop {
             if let Ok((stream, _)) = socks_listener.accept().await {
-                tokio::spawn(async move {
+                userspace::launch(&scope, || async move {
                     if let Err(e) = handle_socks5(stream).await {
                         debug!("SOCKS5 handler error: {}", e);
                     }
@@ -396,7 +405,7 @@ async fn main() {
     loop {
         if let Ok((stream, addr)) = universal_listener.accept().await {
             debug!("New connection from {}", addr);
-            tokio::spawn(async move {
+            userspace::launch(&scope, || async move {
                 // Simple protocol detection and routing
                 if let Err(e) = handle_universal_connection(stream).await {
                     debug!("Universal handler error from {}: {}", addr, e);

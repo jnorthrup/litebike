@@ -535,6 +535,7 @@ mod tests {
             streaming: GatewayStreamingState {
                 enabled: true,
                 openai_chat_completions: "disabled".to_string(),
+                openai_responses: "disabled".to_string(),
                 ollama_chat: "ndjson".to_string(),
             },
             claude_model_rewrite: ClaudeModelRewritePolicy {

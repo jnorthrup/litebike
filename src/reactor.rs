@@ -3,7 +3,8 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
-use tokio::sync::{mpsc, oneshot};
+use async_channel::{unbounded, Receiver, Sender};
+use futures::channel::oneshot;
 use tokio::net::TcpStream;
 use std::time::{Duration, Instant};
 
@@ -28,14 +29,14 @@ pub struct ChannelizedReactor {
     config: ReactorConfig,
     
     /// Shutdown signal
-    shutdown_tx: Option<oneshot::Sender<()>>,
+    shutdown_tx: Option<futures::channel::oneshot::Sender<()>>,
     
     /// RBCursive instance for protocol detection
     rbcursive: RBCursive,
 }
 
 /// Reactor Channel - Type alias for WAM block message passing
-pub type ReactorChannel = mpsc::UnboundedSender<ChannelMessage>;
+pub type ReactorChannel = Sender<ChannelMessage>;
 
 /// Reactor Loop - Type alias for event processing function
 pub type ReactorLoop = Box<dyn FnMut(ChannelMessage) -> Result<(), ReactorError> + Send>;
@@ -46,7 +47,7 @@ pub struct ChannelMessage {
     pub sequence_id: SequenceId,
     pub wam_block: WamBlock,
     pub stream: Option<TcpStream>,
-    pub response_tx: Option<oneshot::Sender<ChannelResponse>>,
+    pub response_tx: Option<futures::channel::oneshot::Sender<ChannelResponse>>,
     pub timestamp: Instant,
 }
 
@@ -157,7 +158,7 @@ impl ChannelizedReactor {
             Protocol::Http2 as u8,
             Protocol::WebSocket as u8,
         ] {
-            let (tx, _rx) = mpsc::unbounded_channel();
+            let (tx, _rx) = unbounded();
             channels.insert(protocol_id, tx);
         }
         
@@ -173,21 +174,21 @@ impl ChannelizedReactor {
     
     /// Start the channelized reactor event loop
     pub async fn start(&mut self) -> Result<(), ReactorError> {
-        let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+        let (shutdown_tx, mut shutdown_rx) = futures::channel::oneshot::channel();
         self.shutdown_tx = Some(shutdown_tx);
         
         // Create receivers for all protocol channels
         let mut receivers = HashMap::new();
         let protocol_ids: Vec<u8> = self.channels.keys().cloned().collect();
         for protocol_id in protocol_ids {
-            let (tx, rx) = mpsc::unbounded_channel();
+            let (tx, rx) = unbounded();
             self.channels.insert(protocol_id, tx);
             receivers.insert(protocol_id, rx);
         }
         
         // Main event loop
         loop {
-            tokio::select! {
+            futures::select! {
                 // Check for shutdown signal
                 _ = &mut shutdown_rx => {
                     println!("Channelized reactor shutting down");
@@ -209,7 +210,7 @@ impl ChannelizedReactor {
     /// Process incoming channel messages from all protocols
     async fn process_channel_messages(
         &self,
-        receivers: &mut HashMap<u8, mpsc::UnboundedReceiver<ChannelMessage>>
+        receivers: &mut HashMap<u8, Receiver<ChannelMessage>>
     ) -> Result<(), ReactorError> {
         // Process messages with priority ordering
         let mut priority_protocols: Vec<_> = self.config.protocol_priorities.iter()
@@ -285,13 +286,13 @@ impl ChannelizedReactor {
         &self,
         wam_block: WamBlock,
         stream: Option<TcpStream>
-    ) -> Result<oneshot::Receiver<ChannelResponse>, ReactorError> {
+    ) -> Result<futures::channel::oneshot::Receiver<ChannelResponse>, ReactorError> {
         let protocol_id = wam_block.element.protocol_spec;
-        
+
         let channel = self.channels.get(&protocol_id)
             .ok_or_else(|| ReactorError::ChannelNotFound { protocol_id })?;
-        
-        let (response_tx, response_rx) = oneshot::channel();
+
+        let (response_tx, response_rx) = futures::channel::oneshot::channel();
         
         let message = ChannelMessage {
             sequence_id: wam_block.sequence_id,
@@ -312,7 +313,7 @@ impl ChannelizedReactor {
         &self,
         mut stream: TcpStream,
         sequence_id: SequenceId
-    ) -> Result<oneshot::Receiver<ChannelResponse>, ReactorError> {
+    ) -> Result<futures::channel::oneshot::Receiver<ChannelResponse>, ReactorError> {
         // Read initial data for protocol detection
         let mut buffer = vec![0u8; 512];
         let n = tokio::io::AsyncReadExt::read(&mut stream, &mut buffer).await?;

@@ -956,6 +956,8 @@ impl ModelProxy {
             "preferred_provider": state.routing.preferred_provider,
             "claude_model_rewrite": state.claude_model_rewrite.enabled,
             "streaming_enabled": state.streaming.enabled,
+            "openai_chat_completions": state.streaming.openai_chat_completions,
+            "openai_responses": state.streaming.openai_responses,
         })
     }
 
@@ -973,6 +975,8 @@ impl ModelProxy {
             "requests_error": 0,
             "providers_active": state.providers.len(),
             "streaming_mode": state.streaming.ollama_chat,
+            "openai_chat_completions": state.streaming.openai_chat_completions,
+            "openai_responses": state.streaming.openai_responses,
         })
     }
 

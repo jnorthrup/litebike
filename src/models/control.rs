@@ -56,6 +56,7 @@ pub struct GatewayRoutingState {
 pub struct GatewayStreamingState {
     pub enabled: bool,
     pub openai_chat_completions: String,
+    pub openai_responses: String,
     pub ollama_chat: String,
 }
 
@@ -327,7 +328,12 @@ impl GatewayRuntimeControl {
             },
             streaming: GatewayStreamingState {
                 enabled: self.streaming_enabled,
-                openai_chat_completions: "disabled".to_string(),
+                openai_chat_completions: env_string("MODELMUX_OPENAI_CHAT").unwrap_or_else(|| {
+                    if self.streaming_enabled { "sse".to_string() } else { "disabled".to_string() }
+                }),
+                openai_responses: env_string("MODELMUX_OPENAI_RESPONSES").unwrap_or_else(|| {
+                    if self.streaming_enabled { "sse".to_string() } else { "disabled".to_string() }
+                }),
                 ollama_chat: if self.streaming_enabled {
                     "ndjson".to_string()
                 } else {
